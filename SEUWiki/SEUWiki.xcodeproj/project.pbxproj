@@ -10,11 +10,21 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A1000000000000000000A2 /* Exceptions for "SEUWiki" folder in "SEUWiki" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A1000000000000000000D1 /* SEUWiki */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A1000000000000000000A1 /* SEUWiki */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1000000000000000000A2 /* Exceptions for "SEUWiki" folder in "SEUWiki" target */,
+			);
 			path = SEUWiki;
 			sourceTree = "<group>";
 		};
