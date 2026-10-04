@@ -1,11 +1,20 @@
 import SwiftUI
 
 /// 资讯详情页：正文 + 底部「在网页中打开 / 设定提醒」操作条。
+/// 进入时按 id 拉取线上详情（body / 原文链接）；失败静默回退展示传入的列表摘要。
 struct FeedItemDetailView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(FeedStore.self) private var store: FeedStore?
     @State private var showsReminderEditor = false
+    @State private var detail: FeedItemDetail?
+    @State private var isLoadingDetail = false
 
     let item: FeedItem
+
+    /// 原文链接优先用详情接口下发的 links.original（列表响应不含 links）。
+    private var originalURL: URL? {
+        detail?.originalURL ?? item.originalURL
+    }
 
     var body: some View {
         ScrollView {
@@ -22,13 +31,33 @@ struct FeedItemDetailView: View {
                 Text(item.title)
                     .font(.title2.weight(.bold))
 
+                if let originalTitle = detail?.originalTitle, originalTitle != item.title {
+                    Text("原文标题：\(originalTitle)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 if let deadline = item.audience.deadline {
                     deadlineRow(deadline)
                 }
 
-                Text(item.summary)
-                    .font(.body)
-                    .lineSpacing(6)
+                if let body = detail?.body {
+                    Text(body)
+                        .lineSpacing(6)
+                        .tint(Color.accentColor)
+                } else {
+                    Text(detail?.summary ?? item.summary)
+                        .font(.body)
+                        .lineSpacing(6)
+                }
+
+                if isLoadingDetail {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                }
 
                 if !item.tags.isEmpty {
                     FlowLayout(spacing: 8) {
@@ -54,6 +83,12 @@ struct FeedItemDetailView: View {
         }
         .sheet(isPresented: $showsReminderEditor) {
             ReminderEditView(item: item)
+        }
+        .task {
+            guard let store, detail == nil else { return }
+            isLoadingDetail = true
+            defer { isLoadingDetail = false }
+            detail = try? await store.detail(for: item)
         }
     }
 
@@ -93,7 +128,7 @@ struct FeedItemDetailView: View {
     private var actionBar: some View {
         HStack(spacing: 12) {
             Button {
-                if let url = item.originalURL {
+                if let url = originalURL {
                     openURL(url)
                 }
             } label: {
@@ -101,7 +136,7 @@ struct FeedItemDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(item.originalURL == nil)
+            .disabled(originalURL == nil)
 
             Button {
                 showsReminderEditor = true

@@ -1,26 +1,58 @@
 import SwiftUI
 
 /// 「全部」与分类页共用的资讯卡片列表。
+/// page / onRefresh / onLoadMore 缺省时退化为纯静态列表（Preview 与 Mock 用法）。
 struct FeedItemList: View {
     let items: [FeedItem]
+    var page: FeedStore.PageState?
     var emptyMessage: String = "暂无资讯"
+    var onRefresh: (() async -> Void)? = nil
+    var onLoadMore: (() async -> Void)? = nil
 
     var body: some View {
         ScrollView {
-            if items.isEmpty {
+            if let page, page.isLoading, items.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
+            } else if items.isEmpty {
                 ContentUnavailableView("暂无资讯", systemImage: "newspaper", description: Text(emptyMessage))
                     .padding(.top, 80)
             } else {
                 LazyVStack(spacing: 12) {
+                    if page?.isOffline == true {
+                        FeedOfflineBanner()
+                    }
                     ForEach(items) { item in
                         NavigationLink(value: item) {
                             FeedItemRow(item: item)
                         }
                         .buttonStyle(.plain)
+                        .onAppear {
+                            if item.id == items.last?.id {
+                                Task { await onLoadMore?() }
+                            }
+                        }
+                    }
+                    if page?.isLoadingMore == true {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
                     }
                 }
                 .padding()
             }
+        }
+        .refreshableIfSupported(onRefresh)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func refreshableIfSupported(_ action: (() async -> Void)?) -> some View {
+        if let action {
+            self.refreshable { await action() }
+        } else {
+            self
         }
     }
 }

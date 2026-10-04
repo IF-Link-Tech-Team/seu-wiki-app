@@ -34,7 +34,9 @@ struct FeedFilter: Hashable {
     var isActive: Bool { onlyMyCollege || degree != nil || !categories.isEmpty }
 
     func matches(_ item: FeedItem, profile: UserProfile) -> Bool {
-        if onlyMyCollege, !item.audience.colleges.contains(profile.college) { return false }
+        // 线上接口不下发 campus 受众字段：受众未知（空数组）时视为中性不剔除，
+        // 只有明确知道受众且不匹配时才过滤（Mock 数据行为不变）。
+        if onlyMyCollege, !item.audience.colleges.isEmpty, !item.audience.colleges.contains(profile.college) { return false }
         if let degree, !item.audience.identities.isEmpty, !item.audience.identities.contains(degree) { return false }
         if !categories.isEmpty, !categories.contains(item.category) { return false }
         return true
@@ -43,6 +45,7 @@ struct FeedFilter: Hashable {
 
 struct FeedHomeView: View {
     @Environment(UserProfile.self) private var profile
+    @Environment(FeedStore.self) private var store
     @State private var showsProfile = false
     @State private var scope: FeedScope = .forYou
     @State private var filter = FeedFilter()
@@ -56,14 +59,27 @@ struct FeedHomeView: View {
                 Group {
                     switch scope {
                     case .forYou:
-                        ForYouFeedList(items: forYouItems)
+                        ForYouFeedList(
+                            page: store.page(for: .forYou),
+                            onRefresh: { await store.refresh(scope: .forYou, profile: profile) },
+                            onLoadMore: { await store.loadMore(scope: .forYou, profile: profile) }
+                        )
                     case .all:
                         FeedItemList(
                             items: allItems,
-                            emptyMessage: filter.isActive ? "没有符合条件的资讯，试试调整筛选条件" : "暂无资讯"
+                            page: store.page(for: .all),
+                            emptyMessage: filter.isActive ? "没有符合条件的资讯，试试调整筛选条件" : "暂无资讯",
+                            onRefresh: { await store.refresh(scope: .all, profile: profile) },
+                            onLoadMore: { await store.loadMore(scope: .all, profile: profile) }
                         )
                     case .category(let category):
-                        FeedItemList(items: items(in: category), emptyMessage: "该分类暂无资讯")
+                        FeedItemList(
+                            items: store.page(for: .category(category)).items,
+                            page: store.page(for: .category(category)),
+                            emptyMessage: "该分类暂无资讯",
+                            onRefresh: { await store.refresh(scope: .category(category), profile: profile) },
+                            onLoadMore: { await store.loadMore(scope: .category(category), profile: profile) }
+                        )
                     }
                 }
                 .transition(.opacity)
@@ -84,49 +100,70 @@ struct FeedHomeView: View {
             .sheet(isPresented: $showsFilter) {
                 FeedFilterView(filter: $filter)
             }
-        }
-    }
-
-    /// 为你精选：有命中理由的排前面，组内按发布时间倒序。
-    private var forYouItems: [FeedItem] {
-        MockData.feedItems.sorted { lhs, rhs in
-            if !lhs.matchReasons.isEmpty != !rhs.matchReasons.isEmpty {
-                return !lhs.matchReasons.isEmpty
+            .task(id: scope) {
+                await store.loadIfNeeded(scope: scope, profile: profile)
             }
-            return lhs.publishedAt > rhs.publishedAt
         }
     }
 
-    /// 「全部」：应用筛选条件，按发布时间倒序。
+    /// 「全部」：筛选条件在客户端应用（分类多选直接匹配，学院/学段对受众未知的线上数据不剔除）。
     private var allItems: [FeedItem] {
-        MockData.feedItems
-            .filter { filter.matches($0, profile: profile) }
-            .sorted { $0.publishedAt > $1.publishedAt }
-    }
-
-    private func items(in category: FeedCategory) -> [FeedItem] {
-        MockData.feedItems
-            .filter { $0.category == category }
-            .sorted { $0.publishedAt > $1.publishedAt }
+        store.page(for: .all).items.filter { filter.matches($0, profile: profile) }
     }
 }
 
 /// 「为你精选」：个性化卡片流，命中理由显示为 accent 色 chip。
 private struct ForYouFeedList: View {
-    let items: [FeedItem]
+    let page: FeedStore.PageState
+    var onRefresh: () async -> Void
+    var onLoadMore: () async -> Void
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(items) { item in
-                    NavigationLink(value: item) {
-                        ForYouCard(item: item)
+            if page.isLoading, page.items.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
+            } else if page.items.isEmpty {
+                ContentUnavailableView("暂无资讯", systemImage: "newspaper", description: Text("暂时没有为你精选的资讯"))
+                    .padding(.top, 80)
+            } else {
+                LazyVStack(spacing: 12) {
+                    if page.isOffline {
+                        FeedOfflineBanner()
                     }
-                    .buttonStyle(.plain)
+                    ForEach(page.items) { item in
+                        NavigationLink(value: item) {
+                            ForYouCard(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .onAppear {
+                            if item.id == page.items.last?.id {
+                                Task { await onLoadMore() }
+                            }
+                        }
+                    }
+                    if page.isLoadingMore {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    }
                 }
+                .padding()
             }
-            .padding()
         }
+        .refreshable { await onRefresh() }
+    }
+}
+
+/// 网络失败回退 MockData 时的轻量提示，不阻塞浏览。
+struct FeedOfflineBanner: View {
+    var body: some View {
+        Label("暂时无法连接服务器，显示离线示例内容", systemImage: "wifi.slash")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Color(.tertiarySystemFill), in: .capsule)
     }
 }
 
@@ -185,4 +222,5 @@ private struct ForYouCard: View {
 #Preview {
     FeedHomeView()
         .environment(UserProfile())
+        .environment(FeedStore(mockOnly: true))
 }
