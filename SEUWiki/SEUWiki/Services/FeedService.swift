@@ -52,6 +52,16 @@ struct FeedAPIClient: Sendable {
         )
     }
 
+    /// GET /api/site/pool?q=&page= → 全站搜索。items 结构与 timeline 相同，
+    /// 走同一套 DTO 映射；分页用 page/pageCount（每页 40 条），docs（手册/经验命中）暂不使用。
+    func pool(query: String, page: Int = 1) async throws -> (items: [FeedItem], page: Int, pageCount: Int, total: Int) {
+        let response: PoolResponseDTO = try await get("/api/site/pool", query: [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "page", value: String(page)),
+        ])
+        return (response.items.map { $0.feedItem() }, response.page, response.pageCount, response.total)
+    }
+
     // MARK: - Plumbing
 
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
@@ -157,6 +167,14 @@ private struct TimelineResponseDTO: Decodable {
 private struct ForYouResponseDTO: Decodable {
     let items: [FeedItemSummaryDTO]
     let nextCursor: String?
+}
+
+/// 对应 `PoolResponse`，只取 items 与分页字段（filters / docs / freshness 等暂不使用）。
+private struct PoolResponseDTO: Decodable {
+    let items: [FeedItemSummaryDTO]
+    let page: Int
+    let pageCount: Int
+    let total: Int
 }
 
 private struct ItemDetailDTO: Decodable {

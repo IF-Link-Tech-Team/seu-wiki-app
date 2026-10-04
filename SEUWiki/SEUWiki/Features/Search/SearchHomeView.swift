@@ -4,16 +4,18 @@ import SwiftUI
 /// - 关键词为空：热门搜索与搜索范围引导。
 /// - scope 为「全部」：按信源分区的聚合卡片（每区最多 3 条 + 查看更多）。
 /// - scope 为具体信源：直接显示该信源的完整结果列表（不分区）。
+/// 「通知」信源来自线上 pool 搜索（SearchStore 负责防抖 / 取消 / 失败回退 MockData）。
 struct SearchHomeView: View {
     @State private var keyword = ""
     @State private var scope: SearchScope = .all
+    @State private var store: SearchStore
+
+    init(store: SearchStore = SearchStore()) {
+        _store = State(initialValue: store)
+    }
 
     private var trimmedKeyword: String {
         keyword.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var results: SearchResults {
-        SearchEngine.search(trimmedKeyword)
     }
 
     var body: some View {
@@ -29,6 +31,9 @@ struct SearchHomeView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "搜索通知、经验、手册"
             )
+            .onChange(of: trimmedKeyword, initial: true) { _, newValue in
+                store.search(keyword: newValue)
+            }
             .appNavigationDestinations()
             .navigationDestination(for: HandbookEntry.self) { entry in
                 SearchHandbookEntryView(entry: entry)
@@ -44,14 +49,25 @@ struct SearchHomeView: View {
                     keyword = word
                 }
             }
-        } else if results.isEmpty {
-            ContentUnavailableView.search(text: trimmedKeyword)
+        } else if store.isEmpty {
+            // 线上搜索进行中先显示加载中，避免空态闪烁。
+            if store.isSearching {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView.search(text: trimmedKeyword)
+            }
         } else if scope == .all {
             aggregatedResults
-        } else if results.isEmpty(for: scope) {
-            ContentUnavailableView.search(text: trimmedKeyword)
+        } else if store.isEmpty(for: scope) {
+            if scope == .feed, store.isSearching {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView.search(text: trimmedKeyword)
+            }
         } else {
-            SearchSourceListView(scope: scope, keyword: trimmedKeyword, results: results, title: "搜索")
+            SearchSourceListView(scope: scope, keyword: trimmedKeyword, store: store, title: "搜索")
         }
     }
 
@@ -59,13 +75,13 @@ struct SearchHomeView: View {
     private var aggregatedResults: some View {
         ScrollView {
             VStack(spacing: 20) {
-                if !results.feed.isEmpty {
+                if !store.feed.items.isEmpty {
                     feedSection
                 }
-                if !results.forum.isEmpty {
+                if !store.forum.isEmpty {
                     forumSection
                 }
-                if !results.handbook.isEmpty {
+                if !store.handbook.isEmpty {
                     handbookSection
                 }
             }
@@ -76,10 +92,10 @@ struct SearchHomeView: View {
     private var feedSection: some View {
         SearchSectionCard(
             scope: .feed,
-            count: results.feed.count,
-            destination: SearchSourceListView(scope: .feed, keyword: trimmedKeyword, results: results)
+            count: store.feed.total,
+            destination: SearchSourceListView(scope: .feed, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(results.feed.prefix(3))) { item in
+            sectionRows(Array(store.feed.items.prefix(3))) { item in
                 NavigationLink(value: item) {
                     SearchFeedRow(item: item, keyword: trimmedKeyword)
                         .padding(14)
@@ -93,10 +109,10 @@ struct SearchHomeView: View {
     private var forumSection: some View {
         SearchSectionCard(
             scope: .forum,
-            count: results.forum.count,
-            destination: SearchSourceListView(scope: .forum, keyword: trimmedKeyword, results: results)
+            count: store.forum.count,
+            destination: SearchSourceListView(scope: .forum, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(results.forum.prefix(3))) { post in
+            sectionRows(Array(store.forum.prefix(3))) { post in
                 NavigationLink(value: post) {
                     SearchForumRow(post: post, keyword: trimmedKeyword)
                         .padding(14)
@@ -110,10 +126,10 @@ struct SearchHomeView: View {
     private var handbookSection: some View {
         SearchSectionCard(
             scope: .handbook,
-            count: results.handbook.count,
-            destination: SearchSourceListView(scope: .handbook, keyword: trimmedKeyword, results: results)
+            count: store.handbook.count,
+            destination: SearchSourceListView(scope: .handbook, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(results.handbook.prefix(3))) { entry in
+            sectionRows(Array(store.handbook.prefix(3))) { entry in
                 NavigationLink(value: entry) {
                     SearchHandbookRow(entry: entry, keyword: trimmedKeyword)
                         .padding(14)
@@ -141,5 +157,5 @@ struct SearchHomeView: View {
 }
 
 #Preview {
-    SearchHomeView()
+    SearchHomeView(store: SearchStore(mockOnly: true))
 }
