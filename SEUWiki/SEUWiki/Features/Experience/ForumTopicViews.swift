@@ -20,32 +20,39 @@ struct ForumTopicsSquareView: View {
     }
 }
 
+/// 播客分类风格卡片：饱和纯色底，左下白色加粗话题名，
+/// 右侧大尺寸半透明白色装饰图标（略微出血裁切）。
 private struct TopicCard: View {
     let topic: ForumTopic
 
     private var tint: Color {
-        ForumPalette.color(for: topic.id)
+        ForumPalette.solidColor(for: topic.id)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: topic.systemImage)
-                .font(.title2.weight(.medium))
-                .foregroundStyle(tint)
-                .frame(width: 44, height: 44)
-                .background(tint.opacity(0.12), in: .rect(cornerRadius: 12, style: .continuous))
+        ZStack(alignment: .bottomLeading) {
+            tint
 
-            Spacer(minLength: 0)
+            Image(systemName: topic.systemImage)
+                .font(.system(size: 56, weight: .medium))
+                .foregroundStyle(.white.opacity(0.25))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .offset(x: 16, y: 6)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(topic.name)
-                    .font(.headline)
                 Text("\(forumCompactCount(topic.postCount)) 篇帖子")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                Text(topic.name)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
             }
+            .padding(12)
         }
-        .cardStyle()
+        .frame(maxWidth: .infinity)
+        .frame(height: 116)
+        .clipShape(.rect(cornerRadius: 16, style: .continuous))
+        .contentShape(.rect)
     }
 }
 
@@ -59,7 +66,7 @@ struct ForumTopicDetailView: View {
     @State private var selectedSubtag: String?
 
     private var tint: Color {
-        ForumPalette.color(for: topic.id)
+        ForumPalette.solidColor(for: topic.id)
     }
 
     private var isFollowed: Bool {

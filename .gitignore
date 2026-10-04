@@ -11,3 +11,6 @@ xcuserdata/
 
 # Reference repos (cloned for development reference only, not part of the app)
 Reference/
+
+# 独立项目，有自己的 git 仓库
+seu-forum/

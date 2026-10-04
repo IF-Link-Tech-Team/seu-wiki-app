@@ -19,9 +19,28 @@ func forumTopicName(for slug: String) -> String? {
 enum ForumPalette {
     static let colors: [Color] = [.blue, .green, .orange, .pink, .purple, .teal, .indigo, .mint]
 
+    /// 高饱和实体色：话题卡片底色与手册分类图标（对齐 Apple 播客分类页）。
+    static let solidColors: [Color] = [
+        Color(red: 0.62, green: 0.66, blue: 0.22),
+        Color(red: 0.86, green: 0.24, blue: 0.32),
+        Color(red: 0.93, green: 0.49, blue: 0.16),
+        Color(red: 0.88, green: 0.30, blue: 0.47),
+        Color(red: 0.36, green: 0.68, blue: 0.26),
+        Color(red: 0.18, green: 0.62, blue: 0.58),
+        Color(red: 0.24, green: 0.52, blue: 0.89),
+        Color(red: 0.50, green: 0.36, blue: 0.83),
+        Color(red: 0.86, green: 0.28, blue: 0.62),
+        Color(red: 0.94, green: 0.62, blue: 0.14),
+    ]
+
     static func color(for key: String) -> Color {
         let sum = key.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         return colors[sum % colors.count]
+    }
+
+    static func solidColor(for key: String) -> Color {
+        let sum = key.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return solidColors[sum % solidColors.count]
     }
 }
 

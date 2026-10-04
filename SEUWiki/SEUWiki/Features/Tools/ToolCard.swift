@@ -22,39 +22,43 @@ struct ToolIconSquare: View {
     }
 }
 
-/// 「快捷指令」资料库风格卡片：图标方块 + 工具名 + 副标题，
-/// 底色为二级分组底色上叠一层 tool.tint 浅色调，深浅色模式各自协调。
+/// 「快捷指令」资料库风格卡片：整张卡片为 tool.tint 饱和纯色
+/// （上下轻微渐变增加层次），图标在左上角、名称在左下角，全部白色。
+/// 深浅色模式保持同样的彩色卡片。
 struct ToolCard: View {
     let tool: ToolItem
     var subtitle: String? = nil
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ToolIconSquare(tool: tool)
+            Image(systemName: tool.systemImage)
+                .font(.title2.weight(.semibold))
 
             Spacer(minLength: 12)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(tool.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.headline.weight(.bold))
                 Text(subtitle ?? tool.subtitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.7))
             }
             .lineLimit(1)
         }
+        .foregroundStyle(.white)
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 118, maxHeight: 118, alignment: .topLeading)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(tool.tint.opacity(colorScheme == .dark ? 0.24 : 0.12))
-                }
-        }
+        .background(
+            LinearGradient(
+                colors: [
+                    tool.tint.mix(with: .white, by: 0.08),
+                    tool.tint.mix(with: .black, by: 0.1),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: .rect(cornerRadius: 20, style: .continuous)
+        )
     }
 }
 
