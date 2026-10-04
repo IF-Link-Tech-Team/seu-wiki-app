@@ -6,15 +6,16 @@ struct HomeFeedSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HomeSectionHeader(title: "与我有关的通知", destination: HomeFeedListView(items: MockData.feedItems))
+            HomeSectionHeader(title: "与我有关的通知", destination: HomeFeedListView(items: items))
 
             VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                let shown = Array(items.prefix(3))
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
                     NavigationLink(value: item) {
                         HomeFeedRow(item: item)
                     }
                     .buttonStyle(.plain)
-                    if index < items.count - 1 {
+                    if index < shown.count - 1 {
                         Divider().padding(.leading, 52)
                     }
                 }
