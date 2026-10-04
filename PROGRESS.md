@@ -12,11 +12,11 @@
 - [x] 工具：快捷指令资料库式彩色网格；课表页（与主页联动，同读 UserProfile.courses）
 - [x] 搜索：三信源聚合（通知/经验/手册分区卡片 + 查看更多 + 命中加粗高亮 + scope console）
 - [x] 个人页：原生登录 UI（AuthStore stub）+ 画像编辑 + 我的提醒/收藏/关注
-- [x] seu-forum 后端项目初始化（独立 git 仓库，基于 iflab-forum 复刻裁剪）——进行中
+- [x] seu-forum 后端（独立 git 仓库 `seu-forum/`）：复刻 iflab-forum，裁剪 products 线（−5213 行）、话题目录替换为 8 主题 + 29 子标签、品牌重写；tsc/eslint/next build/21 项测试/PostgreSQL 权限门禁全部通过
 
 ## 下一步（按优先级）
 
-1. **seu-forum 后端收尾**：裁剪 products 线、话题目录替换、README；后续补充关注/通知/搜索 API
+1. **seu-forum 部署**：SEU 运行环境（Supabase 项目、Logto app、COS bucket、域名）创建后再 re-endpoint 部署资产；roadmap：关注话题 API、notifications 接线、搜索 API
 2. **真实数据接入**：资讯接 seu-wiki-v2 `/api/site/timeline` `/for-you` `/pool`（Models 已对齐契约，建 Services/FeedService.swift）
 3. **Logto 登录接线**：AuthStore → OIDC PKCE（auth.iflink.tech，LOGTO_NATIVE_APP_ID），参考 Reference/iflab-forum/docs/auth.md 的 Bearer 契约
 4. **持久化**：UserProfile 的提醒/关注/收藏目前内存态，接 SwiftData 或 App Group UserDefaults
