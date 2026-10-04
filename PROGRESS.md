@@ -13,6 +13,8 @@
 - [x] 搜索：三信源聚合（通知/经验/手册分区卡片 + 查看更多 + 命中加粗高亮 + scope console）
 - [x] 个人页：原生登录 UI（AuthStore stub）+ 画像编辑 + 我的提醒/收藏/关注
 - [x] seu-forum 后端（独立 git 仓库 `seu-forum/`）：复刻 iflab-forum，裁剪 products 线（−5213 行）、话题目录替换为 8 主题 + 29 子标签、品牌重写；tsc/eslint/next build/21 项测试/PostgreSQL 权限门禁全部通过
+- [x] seu-forum 已部署到 iflink-prod：`seu_forum` 库 + `seu-forum-postgrest`:3503 + `seu-forum-app`:3502（healthy）+ Caddy `http://forum.seu.wiki` 已按 Host 路由配好；公网待 EdgeOne DNS（用户操作）；Logto/COS 为占位凭据
+- [x] Logto 登录基础：URL scheme `tech.iflink.seuwiki` + AuthConfig 单点配置（clientID 待注册）
 - [x] 资讯模块接线上真实 API（https://seu.wiki，timeline/for-you cursor 分页 + 详情 + Mock 离线回退）；主页通知区同步接 for-you
 - [x] UserProfile 本地持久化（UserDefaults + Codable，8 项属性自动落盘/启动恢复，DEBUG 自检）
 - [x] 工具页绩点计算器（五分制换算、加权汇总、本地持久化；换算规则为手册假设，待教务处口径确认）
