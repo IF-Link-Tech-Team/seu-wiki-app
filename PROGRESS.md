@@ -18,16 +18,16 @@
 - [x] 资讯模块接线上真实 API（https://seu.wiki，timeline/for-you cursor 分页 + 详情 + Mock 离线回退）；主页通知区同步接 for-you
 - [x] UserProfile 本地持久化（UserDefaults + Codable，8 项属性自动落盘/启动恢复，DEBUG 自检）
 - [x] 工具页绩点计算器（五分制换算、加权汇总、本地持久化；换算规则为手册假设，待教务处口径确认）
+- [x] 搜索「通知」信源接线上 /api/site/pool（防抖/分页/Mock 回退）；经验信源已抽象 provider 待接 seu-forum
+- [x] App 图标（东大绿 + 白色书本/W，CoreGraphics 生成，模拟器主屏验证）
 
 ## 下一步（按优先级）
 
-1. **seu-forum 部署**：SEU 运行环境（Supabase 项目、Logto app、COS bucket、域名）创建后再 re-endpoint 部署资产；roadmap：关注话题 API、notifications 接线、搜索 API
-2. **搜索接线上**：Search tab 目前搜 MockData，改接 /api/site/pool?q= + seu-forum 搜索 API
-3. **论坛接 seu-forum 后端**：经验模块帖子/评论/点赞/收藏从 seu-forum API 读取（先完成部署）
-4. **Logto 登录接线**：AuthStore → OIDC PKCE（auth.iflink.tech，LOGTO_NATIVE_APP_ID），参考 Reference/iflab-forum/docs/auth.md 的 Bearer 契约
+1. **等待用户操作**：EdgeOne 配 forum.seu.wiki（配好后公网验证 + 论坛/搜索经验信源接 seu-forum 真实数据）；Logto 控制台注册 Web 应用（论坛）+ Native 应用（iOS）——两组 App ID/Secret 到手后接登录
+2. **论坛接 seu-forum**：经验模块帖子/评论/点赞从 seu-forum API 读取（等 DNS 生效）
 5. **推送**：APNs（seu-wiki-v2 无 push 通道，需基于 /api/v1/selected/changes 自建）
-6. **工具页实功能**：课表数据源（教务系统）、绩点计算器、考试安排
-7. **图标与启动屏**：AppIcon 设计（当前为空占位）
+6. **工具页实功能**：课表数据源（教务系统）、考试安排
+7. **启动屏**：Launch Screen 品牌化（当前系统默认）
 
 ## 构建验证
 
