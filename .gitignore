@@ -1,0 +1,13 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store
+
+# Reference repos (cloned for development reference only, not part of the app)
+Reference/
