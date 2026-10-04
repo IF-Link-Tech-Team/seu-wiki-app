@@ -30,6 +30,8 @@ struct ToolsHomeView: View {
                 switch tool.id {
                 case "timetable":
                     TimetableView()
+                case "gpa":
+                    GPACalculatorView()
                 default:
                     ToolPlaceholderView(tool: tool)
                 }
