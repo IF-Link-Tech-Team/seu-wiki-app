@@ -13,13 +13,16 @@
 - [x] 搜索：三信源聚合（通知/经验/手册分区卡片 + 查看更多 + 命中加粗高亮 + scope console）
 - [x] 个人页：原生登录 UI（AuthStore stub）+ 画像编辑 + 我的提醒/收藏/关注
 - [x] seu-forum 后端（独立 git 仓库 `seu-forum/`）：复刻 iflab-forum，裁剪 products 线（−5213 行）、话题目录替换为 8 主题 + 29 子标签、品牌重写；tsc/eslint/next build/21 项测试/PostgreSQL 权限门禁全部通过
+- [x] 资讯模块接线上真实 API（https://seu.wiki，timeline/for-you cursor 分页 + 详情 + Mock 离线回退）；主页通知区同步接 for-you
+- [x] UserProfile 本地持久化（UserDefaults + Codable，8 项属性自动落盘/启动恢复，DEBUG 自检）
+- [x] 工具页绩点计算器（五分制换算、加权汇总、本地持久化；换算规则为手册假设，待教务处口径确认）
 
 ## 下一步（按优先级）
 
 1. **seu-forum 部署**：SEU 运行环境（Supabase 项目、Logto app、COS bucket、域名）创建后再 re-endpoint 部署资产；roadmap：关注话题 API、notifications 接线、搜索 API
-2. **真实数据接入**：资讯接 seu-wiki-v2 `/api/site/timeline` `/for-you` `/pool`（Models 已对齐契约，建 Services/FeedService.swift）
-3. **Logto 登录接线**：AuthStore → OIDC PKCE（auth.iflink.tech，LOGTO_NATIVE_APP_ID），参考 Reference/iflab-forum/docs/auth.md 的 Bearer 契约
-4. **持久化**：UserProfile 的提醒/关注/收藏目前内存态，接 SwiftData 或 App Group UserDefaults
+2. **搜索接线上**：Search tab 目前搜 MockData，改接 /api/site/pool?q= + seu-forum 搜索 API
+3. **论坛接 seu-forum 后端**：经验模块帖子/评论/点赞/收藏从 seu-forum API 读取（先完成部署）
+4. **Logto 登录接线**：AuthStore → OIDC PKCE（auth.iflink.tech，LOGTO_NATIVE_APP_ID），参考 Reference/iflab-forum/docs/auth.md 的 Bearer 契约
 5. **推送**：APNs（seu-wiki-v2 无 push 通道，需基于 /api/v1/selected/changes 自建）
 6. **工具页实功能**：课表数据源（教务系统）、绩点计算器、考试安排
 7. **图标与启动屏**：AppIcon 设计（当前为空占位）
