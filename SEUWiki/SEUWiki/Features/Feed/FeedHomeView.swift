@@ -125,12 +125,26 @@ private struct ForYouFeedList: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 80)
             } else if page.items.isEmpty {
-                ContentUnavailableView("暂无资讯", systemImage: "newspaper", description: Text("暂时没有为你精选的资讯"))
-                    .padding(.top, 80)
+                if page.isOffline {
+                    ContentUnavailableView {
+                        Label("加载失败", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(page.errorMessage ?? "暂时无法连接服务器")
+                    } actions: {
+                        Button("重试") { Task { await onRefresh() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.top, 60)
+                } else {
+                    ContentUnavailableView("暂无资讯", systemImage: "newspaper", description: Text("暂时没有为你精选的资讯"))
+                        .padding(.top, 80)
+                }
             } else {
                 LazyVStack(spacing: 12) {
                     if page.isOffline {
-                        FeedOfflineBanner()
+                        FeedOfflineBanner(message: page.errorMessage) {
+                            Task { await onRefresh() }
+                        }
                     }
                     ForEach(page.items) { item in
                         NavigationLink(value: item) {
@@ -155,15 +169,29 @@ private struct ForYouFeedList: View {
     }
 }
 
-/// 网络失败回退 MockData 时的轻量提示，不阻塞浏览。
+/// 网络失败时的提示条：如实说明并给重试，**不再**回退演示数据。
 struct FeedOfflineBanner: View {
+    var message: String?
+    var onRetry: (() -> Void)?
+
     var body: some View {
-        Label("暂时无法连接服务器，显示离线示例内容", systemImage: "wifi.slash")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(Color(.tertiarySystemFill), in: .capsule)
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(.orange)
+            Text(message ?? "暂时无法连接服务器")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if let onRetry {
+                Button("重试", action: onRetry)
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.borderless)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -222,5 +250,5 @@ private struct ForYouCard: View {
 #Preview {
     FeedHomeView()
         .environment(UserProfile())
-        .environment(FeedStore(mockOnly: true))
+        .environment(FeedStore())
 }

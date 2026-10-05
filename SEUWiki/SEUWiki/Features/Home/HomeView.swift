@@ -6,11 +6,15 @@ struct HomeView: View {
     @State private var experienceStore = ExperienceStore()
     @State private var showsProfile = false
 
+    /// 跨 tab 跳转：由 `RootTabView` 注入。
+    var onShowTimetable: () -> Void = {}
+    var onShowReminders: () -> Void = {}
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    // 提醒卡 / 课程卡并排；大字号下改为竖排（AX1 以上两列会挤到截断）。
+                    // 提醒卡 / 课程卡并排；大字号下自动改竖排，避免 AX 字号被截断。
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 12) {
                             reminderCard
@@ -33,19 +37,24 @@ struct HomeView: View {
             .navigationTitle("主页")
             .profileEntry(isPresented: $showsProfile)
             .appNavigationDestinations()
-            .task {
-                await feedStore.loadIfNeeded(scope: .forYou, profile: profile)
+            .refreshable {
+                await feedStore.refresh(scope: .forYou, profile: profile)
+            }
+            .task(id: profile.profileFingerprint) {
+                // 画像一变就重新拉「为你精选」：后端 cursor 与画像绑定，
+                // 沿用旧结果既不匹配也会让翻页一直失败。
+                await feedStore.refresh(scope: .forYou, profile: profile)
             }
         }
         .environment(experienceStore)
     }
 
     private var reminderCard: some View {
-        ReminderCard(reminder: profile.nextPendingReminder)
+        ReminderCard(reminder: profile.nextPendingReminder, onTap: onShowReminders)
     }
 
     private var nextCourseCard: some View {
-        NextCourseCard(course: profile.nextCourse)
+        NextCourseCard(course: profile.nextCourse, onTap: onShowTimetable)
     }
 
     /// 首页通知区用「为你精选」第一页。

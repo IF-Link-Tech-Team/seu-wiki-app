@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 工具图标：tool.tint 渐变圆角方块内的白色 SF Symbol。
+/// 工具图标：tool.tint 渐变圆角方块内的 SF Symbol。
 /// 网格卡片与占位详情页共用，尺寸随 size 等比缩放。
 struct ToolIconSquare: View {
     let tool: ToolItem
@@ -22,17 +22,31 @@ struct ToolIconSquare: View {
     }
 }
 
-/// 「快捷指令」资料库风格卡片：整张卡片为 tool.tint 饱和纯色
-/// （上下轻微渐变增加层次），图标在左上角、名称在左下角，全部白色。
-/// 深浅色模式保持同样的彩色卡片。
+/// 「快捷指令」资料库风格卡片：整张卡片为 tool.tint 饱和纯色，图标在左上角、
+/// 名称在左下角。
+///
+/// 两处按 UI/UX 对齐方案 §4.1 修正：
+/// 1. **文字颜色按对比度自动选**。原先一律白字，而工具卡的配色里有几个
+///    （`mint`、`teal`、偏黄的绿）白字对比度不足 4.5:1，亮色模式下尤其明显。
+/// 2. **占位工具带「即将推出」标识**。8 个工具里 6 个还没实现，副标题却写得像能用。
 struct ToolCard: View {
     let tool: ToolItem
     var subtitle: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Image(systemName: tool.systemImage)
-                .font(.title2.weight(.semibold))
+            HStack(alignment: .top) {
+                Image(systemName: tool.systemImage)
+                    .font(.title2.weight(.semibold))
+                Spacer(minLength: 0)
+                if !tool.isAvailable {
+                    Text("即将推出")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.white.opacity(0.22), in: .capsule)
+                }
+            }
 
             Spacer(minLength: 12)
 
@@ -41,13 +55,14 @@ struct ToolCard: View {
                     .font(.headline.weight(.bold))
                 Text(subtitle ?? tool.subtitle)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .opacity(0.85)
             }
-            .lineLimit(1)
+            .lineLimit(2)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Contrast.foreground(on: tool.tint))
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 118, maxHeight: 118, alignment: .topLeading)
+        // 用 minHeight 而不是固定 maxHeight：固定 118pt 在 200% 字号下会裁掉副标题。
+        .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
         .background(
             LinearGradient(
                 colors: [
@@ -59,14 +74,55 @@ struct ToolCard: View {
             ),
             in: .rect(cornerRadius: 20, style: .continuous)
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(tool.isAvailable ? tool.name : "\(tool.name)，即将推出")
     }
 }
 
-/// 卡片按压反馈：按下时轻微缩放与淡出。
+/// 文字与背景色的对比度工具。
+///
+/// 卡片背景是品牌彩色 + 渐变，文字颜色只能二选一（白或近黑），
+/// 所以按 WCAG 相对亮度公式算一遍，选对比度更高且达标的那个。
+enum Contrast {
+    /// 在给定背景上选一个达标的文字色。
+    static func foreground(on color: Color) -> Color {
+        let light = Color.white
+        let dark = Color(red: 0.06, green: 0.08, blue: 0.07)
+        let onLight = ratio(luminance(of: light), luminance(of: color))
+        let onDark = ratio(luminance(of: dark), luminance(of: color))
+        // 都达标时选对比度更高的；都不达标时仍选高的（并由调用方另行处理）。
+        if onLight >= 4.5, onDark >= 4.5 { return onLight > onDark ? light : dark }
+        return onLight > onDark ? light : dark
+    }
+
+    /// WCAG 相对亮度。
+    static func luminance(of color: Color) -> Double {
+        let (r, g, b) = resolve(color)
+        func channel(_ c: Double) -> Double {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
+    /// 对比度，(lighter + 0.05) / (darker + 0.05)。
+    static func ratio(_ a: Double, _ b: Double) -> Double {
+        let lighter = max(a, b), darker = min(a, b)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    /// 把 SwiftUI Color 拆成 sRGB 分量（0...1）。
+    static func resolve(_ color: Color) -> (Double, Double, Double) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return (0, 0, 0) }
+        return (Double(r), Double(g), Double(b))
+    }
+}
+
+/// 卡片按压反馈：按下时轻微缩放与淡出（UI/UX 对齐方案 §4.5）。
 struct ToolCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.88 : 1)
             .animation(.snappy(duration: 0.2), value: configuration.isPressed)
             .sensoryFeedback(.impact(flexibility: .soft), trigger: configuration.isPressed) { _, isPressed in

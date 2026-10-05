@@ -27,6 +27,8 @@ struct TimetableView: View {
 
     @Environment(UserProfile.self) private var profile
     @State private var selectedWeekday = Weekday.today
+    /// 非 nil 时弹出编辑表单（新增时是新 `Course`，编辑时是已有课程）。
+    @State private var editing: Course?
 
     private var selection: Binding<Weekday> {
         Binding(
@@ -67,11 +69,21 @@ struct TimetableView: View {
 
             ScrollView {
                 if dayCourses.isEmpty {
-                    ContentUnavailableView(
-                        selectedWeekday == Weekday.today ? "今天没课" : "这天没课",
-                        systemImage: "calendar.badge.checkmark",
-                        description: Text("好好休息，或切换到其他日期查看")
-                    )
+                    ContentUnavailableView {
+                        Label(
+                            profile.courses.isEmpty ? "还没有添加课程" : (selectedWeekday == Weekday.today ? "今天没课" : "这天没课"),
+                            systemImage: "calendar.badge.checkmark"
+                        )
+                    } description: {
+                        Text(profile.courses.isEmpty
+                             ? "点右上角「添加」把本学期的课录进来，主页的「下一节课」会同步更新。"
+                             : "好好休息，或切换到其他日期查看")
+                    } actions: {
+                        if profile.courses.isEmpty {
+                            Button("添加课程") { editing = Course() }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
                     LazyVStack(spacing: 12) {
@@ -86,7 +98,12 @@ struct TimetableView: View {
                         .padding(.horizontal, 4)
 
                         ForEach(dayCourses) { course in
-                            CourseCard(course: course)
+                            Button {
+                                editing = course
+                            } label: {
+                                CourseCard(course: course)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding()
@@ -97,6 +114,11 @@ struct TimetableView: View {
         .groupedBackground()
         .navigationTitle("课表")
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("添加", systemImage: "plus") {
+                    editing = Course(weekday: selectedWeekday)
+                }
+            }
             if selectedWeekday != Weekday.today {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("回到今天") {
@@ -107,6 +129,124 @@ struct TimetableView: View {
                 }
             }
         }
+        .sheet(item: $editing) { course in
+            CourseEditView(course: course) { saved in
+                apply(saved)
+            }
+        }
+    }
+
+    /// 新增或覆盖保存。`Course` 的 `id` 决定是新增还是更新。
+    private func apply(_ course: Course) {
+        if let index = profile.courses.firstIndex(where: { $0.id == course.id }) {
+            profile.courses[index] = course
+        } else {
+            profile.courses.append(course)
+        }
+    }
+}
+
+/// 课程新增/编辑表单。
+///
+/// 课表此前是**只读**的：数据来自演示样例，用户既不能加也不能改，
+/// 「与主页联动」实际上只是在展示一份假数据。现在可以正常录入并落盘。
+struct CourseEditView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(UserProfile.self) private var profile
+
+    @State private var draft: Course
+    private let onSave: (Course) -> Void
+
+    init(course: Course, onSave: @escaping (Course) -> Void) {
+        _draft = State(initialValue: course)
+        self.onSave = onSave
+    }
+
+    private var isNew: Bool {
+        !profile.courses.contains { $0.id == draft.id }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("课程信息") {
+                    TextField("课程名", text: $draft.name)
+                    TextField("教师", text: $draft.teacher)
+                    TextField("地点", text: $draft.location)
+                }
+
+                Section("时间") {
+                    Picker("星期", selection: $draft.weekday) {
+                        ForEach(TimetableView.Weekday.all) { day in
+                            Text(day.title).tag(day.id)
+                        }
+                    }
+                    DatePicker("开始", selection: startBinding, displayedComponents: .hourAndMinute)
+                    DatePicker("结束", selection: endBinding, displayedComponents: .hourAndMinute)
+                }
+
+                if !isNew {
+                    Section {
+                        Button("删除这门课", systemImage: "trash", role: .destructive) {
+                            confirmsDelete = true
+                        }
+                    }
+                }
+            }
+            .navigationTitle(isNew ? "添加课程" : "编辑课程")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存") {
+                        onSave(draft)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .confirmationDialog("删除这门课？", isPresented: $confirmsDelete, titleVisibility: .visible) {
+                Button("删除", role: .destructive) {
+                    profile.courses.removeAll { $0.id == draft.id }
+                    dismiss()
+                }
+                Button("取消", role: .cancel) {}
+            }
+        }
+    }
+
+    @State private var confirmsDelete = false
+
+    /// `Course` 存的是 `DateComponents`（只有时分），编辑时借 `Date` 与原生
+    /// DatePicker 互通。用当天 2001-01-01 作基准，避免真的跑到别的日期。
+    private var baseDay: Date {
+        var c = DateComponents()
+        c.year = 2001; c.month = 1; c.day = 1; c.hour = 0; c.minute = 0
+        return Calendar.current.date(from: c) ?? .now
+    }
+
+    private func date(from components: DateComponents) -> Date {
+        var c = Calendar.current.dateComponents([.year, .month, .day], from: baseDay)
+        c.hour = components.hour ?? 8
+        c.minute = components.minute ?? 0
+        return Calendar.current.date(from: c) ?? baseDay
+    }
+
+    private var startBinding: Binding<Date> {
+        Binding(
+            get: { date(from: draft.startTime) },
+            set: { draft.startTime = Calendar.current.dateComponents([.hour, .minute], from: $0) }
+        )
+    }
+
+    private var endBinding: Binding<Date> {
+        Binding(
+            get: { date(from: draft.endTime) },
+            set: { draft.endTime = Calendar.current.dateComponents([.hour, .minute], from: $0) }
+        )
     }
 }
 

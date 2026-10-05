@@ -11,7 +11,7 @@ struct Course: Identifiable, Codable, Hashable {
     var startTime: DateComponents   // 只有时分有效
     var endTime: DateComponents
 
-    init(id: UUID = UUID(), name: String, teacher: String, location: String, weekday: Int, startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
+    init(id: UUID = UUID(), name: String = "", teacher: String = "", location: String = "", weekday: Int = 1, startHour: Int = 8, startMinute: Int = 0, endHour: Int = 9, endMinute: Int = 40) {
         self.id = id
         self.name = name
         self.teacher = teacher
