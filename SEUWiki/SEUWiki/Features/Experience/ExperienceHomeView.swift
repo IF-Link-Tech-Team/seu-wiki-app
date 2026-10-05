@@ -12,20 +12,20 @@ struct ExperienceHomeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            TabView(selection: $tab) {
+                ForumHotFeedView()
+                    .tag(ForumFeedTab.hot)
+                ForumTopicsSquareView()
+                    .tag(ForumFeedTab.topics)
+                ForumFollowingFeedView(onBrowseTopics: { select(.topics) })
+                    .tag(ForumFeedTab.following)
+                HandbookHomeView()
+                    .tag(ForumFeedTab.handbook)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            // 固定在导航栏下方，不随内容滚走。
+            .safeAreaBar(edge: .top) {
                 ConsoleBar(items: ForumFeedTab.allCases, selection: $tab) { $0.name }
-
-                TabView(selection: $tab) {
-                    ForumHotFeedView()
-                        .tag(ForumFeedTab.hot)
-                    ForumTopicsSquareView()
-                        .tag(ForumFeedTab.topics)
-                    ForumFollowingFeedView(onBrowseTopics: { select(.topics) })
-                        .tag(ForumFeedTab.following)
-                    HandbookHomeView()
-                        .tag(ForumFeedTab.handbook)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .groupedBackground()
             .navigationTitle("经验")

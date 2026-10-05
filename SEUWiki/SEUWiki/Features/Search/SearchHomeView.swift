@@ -20,11 +20,12 @@ struct SearchHomeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ConsoleBar(items: SearchScope.allCases, selection: $scope) { $0.name }
-                content
-            }
-            .groupedBackground()
+            content
+                .safeAreaBar(edge: .top) {
+                    // 固定在导航栏下方：搜索结果可能很长，scope 切换器不该跟着滚走。
+                    ConsoleBar(items: SearchScope.allCases, selection: $scope) { $0.name }
+                }
+                .groupedBackground()
             .navigationTitle("搜索")
             // `displayMode: .always` 是**故意**保留的。
             //

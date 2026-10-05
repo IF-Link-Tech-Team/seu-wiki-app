@@ -65,10 +65,10 @@ struct FeedHomeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ConsoleBar(items: FeedScope.scopes, selection: $scope, title: \.title)
-
-                Group {
+            // ConsoleBar 用 `.safeAreaBar(edge: .top)` 固定在导航栏下方。
+            // 放在 ScrollView 的 VStack 里会随内容一起滚走 —— 资讯有 10 个 scope，
+            // 用户往下翻一屏就找不到 scope 切换器了，得滚回顶部才行。
+            Group {
                     switch scope {
                     case .forYou:
                         ForYouFeedList(
@@ -95,6 +95,8 @@ struct FeedHomeView: View {
                     }
                 }
                 .transition(.opacity)
+            .safeAreaBar(edge: .top) {
+                ConsoleBar(items: FeedScope.scopes, selection: $scope, title: \.title)
             }
             .groupedBackground()
             .navigationTitle("资讯")
