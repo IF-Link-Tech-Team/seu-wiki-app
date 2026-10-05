@@ -9,6 +9,26 @@ struct FeedAPIClient: Sendable {
     var session: URLSession = .shared
     var pageSize = 20
 
+    /// 取当前 access token；返回 nil 就匿名请求。与 Android 的 `FeedApiClient.tokenProvider` 对齐。
+    ///
+    /// 这些接口匿名可访问，登录不是前置条件 —— 但带上 `Authorization: Bearer` 后后端会按
+    /// 登录身份返回个人化内容（契约见 seu-wiki-forum `docs/auth.md` §2）。该头是权威凭证：
+    /// token 无效只会得到匿名/401，后端**不会**回退 Cookie 会话，所以这里发出去的必须是
+    /// `AuthStore.accessToken()` 续过期的结果，不能直接用本地存的旧 token。
+    var tokenProvider: (@Sendable () async -> String?)?
+
+    init(
+        baseURL: URL = URL(string: "https://seu.wiki")!,
+        session: URLSession = .shared,
+        pageSize: Int = 20,
+        tokenProvider: (@Sendable () async -> String?)? = { await AuthStore.shared.accessToken() }
+    ) {
+        self.baseURL = baseURL
+        self.session = session
+        self.pageSize = pageSize
+        self.tokenProvider = tokenProvider
+    }
+
     enum FeedAPIError: Error {
         case http(statusCode: Int)
     }
@@ -69,7 +89,11 @@ struct FeedAPIClient: Sendable {
         components?.path = path
         components?.queryItems = query.isEmpty ? nil : query
         guard let url = components?.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        if let token = await tokenProvider?() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(status) else { throw FeedAPIError.http(statusCode: status) }
         let decoder = JSONDecoder()

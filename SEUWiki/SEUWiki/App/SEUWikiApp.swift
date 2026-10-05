@@ -16,6 +16,11 @@ struct SEUWikiApp: App {
             RootTabView()
                 .environment(profile)
                 .environment(feedStore)
+                .onOpenURL { url in
+                    #if DEBUG
+                    AuthStore.shared.handleDebugURL(url)
+                    #endif
+                }
         }
     }
 }

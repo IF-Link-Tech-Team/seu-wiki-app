@@ -6,8 +6,9 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(UserProfile.self) private var profile
 
-    /// sheet 根视图持有登录态，子页面经 environment 读取，无需改动 App 入口。
-    @State private var auth = AuthStore()
+    /// 用 `AuthStore.shared`（不是每次新建）：feed 层发请求时要经 `accessToken()` 取凭证，
+    /// 拿的必须是个人页这一份，否则登录态会被分裂成两份。
+    @State private var auth = AuthStore.shared
     @State private var showsLogin = false
 
     var body: some View {

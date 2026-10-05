@@ -20,7 +20,9 @@ import SwiftUI
 /// - 换 token / 拉 UserInfo 走 `URLSession`，不引入任何第三方网络库（与
 ///   `FeedAPIClient` 一致）；
 /// - UserInfo 用 `Decodable` 解，`String?` 遇到 JSON null 会得到 nil，不会退化成
-///   字面量 "null"（Android 侧曾踩过这个坑，见 Kotlin 版 `stringOrNull`）。
+///   字面量 "null"（Android 侧曾踩过这个坑，见 Kotlin 版 `stringOrNull`）；
+/// - 要 refresh token 就必须补 `prompt=consent`，否则 Logto 按 OIDC Core §6 丢弃
+///   `offline_access`，详见 [offlineAccessGranted]。
 @MainActor
 @Observable
 final class AuthStore {
@@ -56,6 +58,23 @@ final class AuthStore {
         String(displayName.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
     }
 
+    /// 是否已经向 Logto 取得过「离线访问」授权（即拿到过 refresh token）。
+    ///
+    /// OIDC Core §6 规定：请求里带 `offline_access` 时 `prompt` 必须同时带 `consent`，
+    /// 否则授权服务器**必须忽略** `offline_access`。Logto 严格执行这条 —— 早期只发了
+    /// `offline_access` 而漏了 `prompt=consent`，token 响应里就**没有 `refresh_token`**，
+    /// 而 `email` / `roles` 一切正常，极难察觉。后果是 access token 一小时后过期，
+    /// `accessToken()` 拿不到 refresh token 只能 `logout()`，表现为「用着用着被静默登出」。
+    ///
+    /// 首次登录补上 `prompt=consent`，Logto 会展示授权页并把 `offline_access` 记进该
+    /// 用户对本应用的 grant；之后按 OIDC Core 的「其他已满足条件」直接复用该 grant，
+    /// 不必每次登录都弹授权页。故此标志只置位、登出时也保留，
+    /// 仅在续期被拒（grant 可能已在服务端失效）时清掉，让下一次登录重新征求同意。
+    private var offlineAccessGranted: Bool {
+        get { defaults.bool(forKey: Self.keyOfflineGrant) }
+        set { defaults.set(newValue, forKey: Self.keyOfflineGrant) }
+    }
+
     /// `ASWebAuthenticationSession` 不会被系统持有，不留强引用就立刻释放、
     /// 回调永远不来。存成属性由本对象持有到回调结束。
     private var webSession: ASWebAuthenticationSession?
@@ -69,6 +88,14 @@ final class AuthStore {
     init() {
         session = Self.readPersisted(defaults)
     }
+
+    /// 应用级单例。
+    ///
+    /// 登录态不只被个人页用：`FeedAPIClient` 每次发请求都要经 `accessToken()` 拿续过期的
+    /// 凭证，而 feed 层是 App 入口级（`SEUWikiApp`）持有的，拿不到 sheet 里的那份实例。
+    /// 与 Android 的 `AuthStore.get(context)` 同一取舍：宁可全局一个，也不想让登录态分裂
+    /// 成「个人页已登录、请求仍匿名」两份。
+    static let shared = AuthStore()
 
     // MARK: - 登录
 
@@ -169,6 +196,8 @@ final class AuthStore {
 
         do {
             let token = try await exchangeCode(code: code, verifier: request.verifier)
+            // 拿到 refresh token 即说明 Logto 认可了 offline_access，之后不必再弹授权页。
+            if token.refreshToken != nil { offlineAccessGranted = true }
             let info = try await fetchUserInfo(accessToken: token.accessToken)
             let newSession = Session(
                 accessToken: token.accessToken,
@@ -218,6 +247,9 @@ final class AuthStore {
             return renewed.accessToken
         } catch {
             logout()
+            // grant 可能已在服务端失效（超过 14 天 TTL、密码重置、管理员清理授权）：
+            // 连同「已授权」标志一起清掉，下一次登录会重新弹授权页并取回 refresh token。
+            offlineAccessGranted = false
             return nil
         }
     }
@@ -226,11 +258,45 @@ final class AuthStore {
 
     /// 本地登出：清 token 与资料。Logto 端是 Cookie-only 浏览器会话，
     /// native bearer 客户端没有会话登出重定向可走，这里只清本地。
+    ///
+    /// 刻意不动 `keyOfflineGrant`：consent 是「用户对本应用的一次性许可」，登出不代表
+    /// 收回它 —— 否则每次重新登录都要再看一遍授权页。
     func logout() {
         defaults.removeObject(forKey: Self.keySession)
         session = nil
         lastError = nil
     }
+
+    #if DEBUG
+    /// 仅 Debug 构建存在：把本地会话标记为已过期，并立刻走一次**真实**的续期请求，
+    /// 用来验证 `refresh_token` 链路是否通。
+    ///
+    /// 为什么需要它：模拟器与真机都可能点不到「个人页」里的按钮，而从外部改
+    /// UserDefaults 也不可靠 —— `cfprefsd` 会用内存缓存把文件里的值覆盖回去。
+    /// 在 App 进程内改就没有这个问题。Release 构建里整个方法不存在。
+    func debugExpireAndRefresh() {
+        guard var dict = defaults.dictionary(forKey: Self.keySession),
+              let access = dict["access_token"] as? String, !access.isEmpty
+        else {
+            NSLog("[AuthStore] debug: 本地没有会话，先登录一次")
+            return
+        }
+        dict["expires_at"] = 0  // 1970 年，强制走 renewAccessToken
+        defaults.set(dict, forKey: Self.keySession)
+        session = Self.readPersisted(defaults)
+        Task { [weak self] in
+            let token = await self?.accessToken()
+            NSLog("[AuthStore] debug 强制续期结果=%@", token == nil ? "失败（已登出）" : "成功")
+        }
+    }
+
+    /// 调试 URL 入口。App 已注册 `tech.iflink.seuwiki` scheme，直接用：
+    /// `xcrun simctl openurl booted 'tech.iflink.seuwiki://debug/expire-and-refresh'`
+    func handleDebugURL(_ url: URL) {
+        guard url.path == "/debug/expire-and-refresh" else { return }
+        debugExpireAndRefresh()
+    }
+    #endif
 
     // MARK: - 请求构造
 
@@ -259,6 +325,10 @@ final class AuthStore {
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
+        // 只在还没拿到过离线授权时补 prompt=consent，见 offlineAccessGranted。
+        if !offlineAccessGranted {
+            items.append(URLQueryItem(name: "prompt", value: "consent"))
+        }
         // resource 目前为 nil（opaque token）。若将来开启，这里会带上面板值。
         if let resource = AuthConfig.resource {
             items.append(URLQueryItem(name: "resource", value: resource))
@@ -309,6 +379,17 @@ final class AuthStore {
         }
     }
 
+    /// 只记 token 响应的字段名与「有没有 refresh_token」，绝不打印任何 token 值。
+    private static func logTokenResponse(_ data: Data, hasRefreshToken: Bool) {
+        let fields = (try? JSONSerialization.jsonObject(with: data))
+            .flatMap { $0 as? [String: Any] }
+            .map { $0.keys.sorted().joined(separator: ",") } ?? "?"
+        NSLog(
+            "[AuthStore] token 响应字段=%@，含 refresh_token=%@",
+            fields, hasRefreshToken ? "是" : "否"
+        )
+    }
+
     private func exchangeCode(code: String, verifier: String) async throws -> TokenResponse {
         var form = [
             "grant_type": "authorization_code",
@@ -353,7 +434,9 @@ final class AuthStore {
         request.httpBody = Data(body.utf8)
         let (data, response) = try await session0.data(for: request)
         try Self.checkStatus(response, data: data)
-        return try JSONDecoder().decode(TokenResponse.self, from: data)
+        let token = try JSONDecoder().decode(TokenResponse.self, from: data)
+        Self.logTokenResponse(data, hasRefreshToken: token.refreshToken != nil)
+        return token
     }
 
     private static func checkStatus(_ response: URLResponse, data: Data) throws {
@@ -463,6 +546,8 @@ final class AuthStore {
     }
 
     private static let keySession = "seu_wiki_auth_session"
+    /// 是否已取得 offline_access 授权，见 [offlineAccessGranted]。
+    private static let keyOfflineGrant = "seu_wiki_auth_offline_grant"
     /// 提前这么多秒就当作过期，避免请求正好卡在边界上被拒。
     private static let expirySkew: TimeInterval = 60
 }
