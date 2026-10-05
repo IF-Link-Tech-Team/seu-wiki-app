@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 个人页面与设置：以 sheet 从各 Tab 右上角弹出。
-/// 登录走 IF.Link 生态自部署 Logto（auth.iflink.tech），本阶段仅原生 UI 与本地状态。
+/// 登录走 IF.Link 生态自部署 Logto（auth.iflink.tech），OIDC 授权码 + PKCE。
 struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(UserProfile.self) private var profile
@@ -17,6 +17,17 @@ struct ProfileView: View {
                     AccountHeaderSection(auth: auth)
                 } else {
                     LoginPromptSection(showsLogin: $showsLogin)
+                }
+
+                if let error = auth.lastError {
+                    Section {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    } header: {
+                        Text("登录失败")
+                    }
                 }
 
                 PersonaSection()
@@ -36,24 +47,11 @@ struct ProfileView: View {
                         }
                     }
                 }
-
-                Section("开发调试") {
-                    Button {
-                        withAnimation(.snappy) {
-                            if auth.isLoggedIn {
-                                auth.logout()
-                            } else {
-                                auth.login(username: "demo", password: "demo")
-                            }
-                        }
-                    } label: {
-                        Label("（开发用）切换登录态", systemImage: "ladybug")
-                    }
-                }
             }
             .navigationTitle("我的")
             .navigationDestination(isPresented: $showsLogin) {
-                LoginView()
+                // 显式传 auth，不靠 environment 传播（原因见 LoginView 的注释）。
+                LoginView(auth: auth)
             }
             .appNavigationDestinations()
             .toolbar {

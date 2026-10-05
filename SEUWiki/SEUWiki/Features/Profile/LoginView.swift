@@ -1,21 +1,21 @@
 import SwiftUI
 
-/// 原生登录页（非网页）：本地 stub 表单，后续替换为 Logto OIDC（PKCE）授权流程。
+/// 登录页：发起 Logto OIDC（PKCE）系统浏览器授权。
+///
+/// 原先这里是「用户名 + 密码」的本地 stub 表单 —— 既不安全（明文收集密码）也不可能
+/// 真正登录（Logto 走的是浏览器授权，密码只在 auth.iflink.tech 的页面里输入）。
+/// 现在改为单个授权按钮：点开系统浏览器 → 在 Logto 登录 → 回调 `tech.iflink.seuwiki://callback`
+/// → 换 token → 填充资料。
 struct LoginView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AuthStore.self) private var auth
 
-    @State private var username = ""
-    @State private var password = ""
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case username, password
-    }
-
-    private var isFormValid: Bool {
-        !username.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty
-    }
+    /// 显式注入，不走 `@Environment(AuthStore.self)`。
+    ///
+    /// 踩过的坑：destination 拿不到 Form 上 `.environment(auth)` 注入的 Observable，
+    /// 一进本页就 `Fatal error: No Observable object of type AuthStore found`。
+    /// 显式传参不依赖 environment 传播，顺带也不受修饰符顺序影响。
+    /// AuthStore 是 `@Observable`，在 body 里读属性照样会触发视图更新。
+    let auth: AuthStore
 
     var body: some View {
         Form {
@@ -36,33 +36,43 @@ struct LoginView: View {
             }
 
             Section {
-                TextField("用户名或邮箱", text: $username)
-                    .textContentType(.username)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.next)
-                    .focused($focusedField, equals: .username)
-                    .onSubmit { focusedField = .password }
-                SecureField("密码", text: $password)
-                    .textContentType(.password)
-                    .submitLabel(.go)
-                    .focused($focusedField, equals: .password)
-                    .onSubmit(loginIfValid)
-            }
-
-            Section {
-                Button(action: login) {
-                    Text("登录")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
+                Button {
+                    auth.signIn()
+                } label: {
+                    HStack {
+                        if auth.isBusy {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "safari")
+                        }
+                        Text(auth.isBusy ? "正在登录…" : "使用 IF.Link 账号登录")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(!isFormValid)
+                .disabled(auth.isBusy || !auth.isConfigured)
                 .listRowBackground(Color.clear)
             } footer: {
-                Label("其他登录方式（GitHub、邮箱验证码）将在接入 Logto 后开放", systemImage: "person.badge.key")
+                if !auth.isConfigured {
+                    Label("登录服务配置中", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("在系统浏览器中完成登录，密码不会经过本 App", systemImage: "lock.shield")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = auth.lastError {
+                Section {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                } header: {
+                    Text("登录失败")
+                }
             }
 
             Section {
@@ -71,25 +81,15 @@ struct LoginView: View {
             }
         }
         .navigationTitle("登录")
-        .onAppear { focusedField = .username }
-    }
-
-    private func loginIfValid() {
-        guard isFormValid else { return }
-        login()
-    }
-
-    private func login() {
-        withAnimation(.smooth) {
-            auth.login(username: username.trimmingCharacters(in: .whitespaces), password: password)
+        // 授权回调回来后会自动填充登录态，此时把本页关掉。
+        .onChange(of: auth.isLoggedIn) { _, loggedIn in
+            if loggedIn { dismiss() }
         }
-        dismiss()
     }
 }
 
 #Preview {
     NavigationStack {
-        LoginView()
+        LoginView(auth: AuthStore())
     }
-    .environment(AuthStore())
 }
