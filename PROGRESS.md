@@ -2,8 +2,8 @@
 
 ## 当前状态（2026-10-06）
 
-iOS 端 10 个 commit，双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
-自检 44/44 通过，模拟器逐屏截图验收（浅色 + 深色）。
+iOS 端 14 个 commit，双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
+自检 61/61 通过，模拟器逐屏截图验收（浅色 + 深色）。
 
 ## 已完成
 
@@ -29,6 +29,15 @@ iOS 端 10 个 commit，双端已接真实后端，生产路径**无任何 Mock 
 
 - [x] `ReminderScheduler`：`UNCalendarNotificationTrigger` 排程、授权、删除即取消、冷启动 `reconcile` 对账、总开关（S-5）
 - [x] 提醒可编辑/删除；过期提醒自动清理（S-13）
+- [x] **`UNUserNotificationCenterDelegate`**：前台弹横幅、点通知深链到对应资讯（审查未覆盖，见下）
+- [x] `AppDelegate` 在 `didFinishLaunchingWithOptions` 装 delegate —— 冷启动点通知的回调早于 SwiftUI `App.init()`
+
+> **审查报告漏掉的一条。** S-5 只问「设定提醒会不会真的提醒」。提醒**排进去了**，
+> 但工程里根本没有 delegate：iOS 默认「App 在前台静默丢弃通知」，不实现
+> `willPresent` 就没有横幅；而 `userInfo` 写了却无人读，点通知只切前台、不导航。
+> `relatedItemID` 当时压根没进 userInfo。Android 的 `ReminderReceiver` 注释写着
+> 「对应 iOS 的 `UNUserNotificationCenterDelegate`」—— iOS 侧当时并不存在这个东西，
+> 两端因此没对齐。
 
 ### 界面
 
@@ -50,18 +59,22 @@ iOS 端 10 个 commit，双端已接真实后端，生产路径**无任何 Mock 
 
 ### 自检套件
 
-`Services/SelfCheck.swift`，44 条断言，DEBUG 启动自动跑。**它抓到了三个代码审查看不出的真 bug**：
+`Services/SelfCheck.swift`，61 条断言，DEBUG 启动自动跑。**它抓到了三个代码审查看不出的真 bug**：
 
 | 断言组 | 抓到的 bug |
 |---|---|
 | `checkGPA` | `Double("inf")` 返回 `inf` 而非 nil → 绩点/学分 NaN |
 | `checkURLAssembly` | `URLComponents.path` 把已编码的 `%` 二次转义成 `%25` → **全站中文文档详情 404** |
 | `checkDocDetailContract` | 后端字段是 `headings`/`depth`，代码写成 `outline`/`level` → **目录永远空白**（字段名写错不抛错，只是解成 nil） |
+| `checkReminderNotification` | `userInfo` 的 key 写错（如 `feedId` vs `feedItemID`）→ 点了通知静默什么都不做；占位条目一旦编造标题 → 通知深链进来显示一条对不上的假资讯。两者编译期与运行期都无提示 |
+| `checkReminderFireDate` | 提醒时间必须是 09:00（不是截止时刻本身）；往前推天数必须走 `Calendar.date(byAdding:)`，用「减 86400 秒」在夏令时那天会差一小时 |
 
 ## 已知待办
 
 - [ ] **S-15 绩点口径**：现按 4.8 制换算，代码注释已标注这是手册假设，**需向教务处核实**
 - [ ] **登录无法端到端验证**：Logto 授权码 + PKCE 需要交互式浏览器 + 真实凭据。S-1/S-2/S-6/S-7 是靠代码审查 + 对真实 token/revocation 端点 `curl` 验证的，**不是**真的登进去过
+- [ ] **通知授权弹窗与横幅未在本机实跑**：本机 `Simulator.app` 不在 Xcode 包内，无合成点击能力；`simctl privacy` 不含 notifications 服务、授权状态也不在可写的 TCC 里。因此「授权弹窗 → 真实排程 → 到点弹横幅 → 点开」这段**没有**在真机/模拟器上看过。
+      已验证的部分：排程算法与 `userInfo` 契约有自检覆盖；深链后半段（`RootTabView` → `FeedHomeView` → 详情页）用 DEBUG 启动参数 `-uipush <真实id>` 冷启动实测直达并截图。`-uipush` 走的是与系统回调**同一个** `handle(userInfo:)` 入口，Release 二进制里不存在
 - [ ] **论坛 UGC 不接通**：`seu-wiki-forum` 无任何 HTTP API 路由（仅 Supabase migration）。端内「关注」页如实说明「社区功能即将上线」，不展示编造内容
 - [ ] 后端补齐 `campus` 字段后，移除 `FeedFilter.supportsAudienceFilter = false` 即可开放学院/学段筛选
 - [ ] APNs 推送（seu-wiki-v2 无 push 通道）

@@ -49,13 +49,14 @@ xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath /tmp/dd build
 ```
 
-启动即跑自检（DEBUG），日志里应见 `[SelfCheck] 全部 44 项通过`。
+启动即跑自检（DEBUG），日志里应见 `[SelfCheck] 全部 61 项通过`。
 
 无头模拟器验收用的启动参数（仅 DEBUG，Release 不含）：
 
 ```bash
 xcrun simctl launch booted tech.iflink.seuwiki -uitab experience   # 直达某个 tab
 xcrun simctl launch booted tech.iflink.seuwiki -uidoc "survival/观点篇/1-认识"  # 直达长文详情
+xcrun simctl launch booted tech.iflink.seuwiki -uipush <feedItemID>  # 模拟点开提醒通知，直达该条资讯
 ```
 
 ## 目录
@@ -65,13 +66,13 @@ SEUWiki/SEUWiki/
 ├── App/          # 入口与根 TabView（含 DEBUG 深链参数）
 ├── Models/       # 数据模型（对齐真实 API）、ToolCatalog
 ├── Design/       # 共享设计组件（卡片、ConsoleBar、导航目的地、品牌色）
-├── Services/     # FeedService、ReminderScheduler、SelfCheck、Paging、TimeFormat
+├── Services/     # FeedService、ReminderScheduler、NotificationCenterDelegate、SelfCheck、Paging、TimeFormat
 ├── Stores/       # UserProfile、FeedStore 等 @Observable 状态
 └── Features/     # Home / Feed / Experience / Tools / Search / Profile
 ```
 
 ## 自检套件
 
-`Services/SelfCheck.swift` 在 DEBUG 启动时自动执行 44 条断言，覆盖：日期解析、相对时间、绩点计算、分页去重、slug 编码、URL 组装、后端字段契约、画像指纹、颜色对比度、提醒徽标、持久化容错。
+`Services/SelfCheck.swift` 在 DEBUG 启动时自动执行 61 条断言，覆盖：日期解析、相对时间、绩点计算、分页去重、slug 编码、URL 组装、后端字段契约、画像指纹、颜色对比度、提醒徽标、提醒通知契约（`userInfo` 的 key、触发时刻算法）、持久化容错。
 
-它抓到过三个真实 bug（`Double("inf")` 返回 `inf` 而非 nil、`%25` 双重编码、目录字段名写成 `outline` 而后端是 `headings`）——**这些都是代码审查看不出来、只有断言能抓住的**。新增这类修复时请一并补断言。
+它抓到过五个真实 bug（`Double("inf")` 返回 `inf` 而非 nil、`%25` 双重编码、目录字段名写成 `outline` 而后端是 `headings`、`userInfo` key 写错导致点通知静默失效、夏令时用减 86400 秒会让提醒差一小时）——**这些都是代码审查看不出来、只有断言能抓住的**。新增这类修复时请一并补断言。
