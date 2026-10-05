@@ -107,16 +107,16 @@ final class FeedStore {
     private static func mockItems(for scope: FeedScope) -> [FeedItem] {
         switch scope {
         case .forYou:
-            MockData.feedItems.sorted { lhs, rhs in
+            PreviewSample.feedItems.sorted { lhs, rhs in
                 if !lhs.matchReasons.isEmpty != !rhs.matchReasons.isEmpty {
                     return !lhs.matchReasons.isEmpty
                 }
                 return lhs.publishedAt > rhs.publishedAt
             }
         case .all:
-            MockData.feedItems.sorted { $0.publishedAt > $1.publishedAt }
+            PreviewSample.feedItems.sorted { $0.publishedAt > $1.publishedAt }
         case .category(let category):
-            MockData.feedItems
+            PreviewSample.feedItems
                 .filter { $0.category == category }
                 .sorted { $0.publishedAt > $1.publishedAt }
         }

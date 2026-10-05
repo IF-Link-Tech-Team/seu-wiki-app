@@ -208,7 +208,7 @@ private struct FlowLayout: Layout {
 
 #Preview {
     NavigationStack {
-        FeedItemDetailView(item: MockData.feedItems[0])
+        FeedItemDetailView(item: PreviewSample.feedItems[0])
     }
     .environment(UserProfile())
 }

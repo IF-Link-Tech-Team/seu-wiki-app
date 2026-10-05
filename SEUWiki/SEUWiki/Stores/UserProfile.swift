@@ -27,7 +27,7 @@ final class UserProfile {
     var reminders: [CampusReminder] = [] { didSet { persist(reminders, for: .reminders) } }
     var courses: [Course] = [] { didSet { persist(courses, for: .courses) } }
     var followedTopicIDs = UserProfile.defaultFollowedTopicIDs { didSet { persist(followedTopicIDs, for: .followedTopicIDs) } }
-    var bookmarkedPostIDs: Set<String> = [] { didSet { persist(bookmarkedPostIDs, for: .bookmarkedPostIDs) } }
+    var bookmarkedSlugs: Set<String> = [] { didSet { persist(bookmarkedSlugs, for: .bookmarkedSlugs) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -40,7 +40,7 @@ final class UserProfile {
             if let v = ProfileStorage.load([CampusReminder].self, for: .reminders, defaults: defaults) { reminders = v }
             if let v = ProfileStorage.load([Course].self, for: .courses, defaults: defaults) { courses = v }
             if let v = ProfileStorage.load(Set<String>.self, for: .followedTopicIDs, defaults: defaults) { followedTopicIDs = v }
-            if let v = ProfileStorage.load(Set<String>.self, for: .bookmarkedPostIDs, defaults: defaults) { bookmarkedPostIDs = v }
+            if let v = ProfileStorage.load(Set<String>.self, for: .bookmarkedSlugs, defaults: defaults) { bookmarkedSlugs = v }
         } else {
             // 首次启动：把默认值落盘并写入初始化标记。
             saveAll()
@@ -59,6 +59,24 @@ final class UserProfile {
             .min { a, b in
                 (a.startTime.hour ?? 0) * 60 + (a.startTime.minute ?? 0) < (b.startTime.hour ?? 0) * 60 + (b.startTime.minute ?? 0)
             }
+    }
+
+    /// 主页提醒卡要显示的那条：**最近的、尚未过期的**提醒。
+    ///
+    /// 早期版本直接取 `reminders.min { $0.dueDate < $1.dueDate }`，已过期的提醒会被算进来，
+    /// 天数为负时又落进「今天」分支，于是过期一周的提醒仍然显示「今天」——
+    /// 明显错误的主张比不显示更糟。
+    var nextPendingReminder: CampusReminder? {
+        let now = Date.now
+        return reminders
+            .filter { $0.dueDate >= now }
+            .min { $0.dueDate < $1.dueDate }
+    }
+
+    /// 已过期但还没删掉的提醒，个人页里要单独标成「已过期」。
+    var expiredReminders: [CampusReminder] {
+        let now = Date.now
+        return reminders.filter { $0.dueDate < now }.sorted { $0.dueDate < $1.dueDate }
     }
 
     /// for-you 的画像参数（后端 `parseForYouProfile` 读的就是这四个）。
@@ -92,7 +110,7 @@ final class UserProfile {
         reminders = []
         courses = []
         followedTopicIDs = UserProfile.defaultFollowedTopicIDs
-        bookmarkedPostIDs = []
+        bookmarkedSlugs = []
     }
 
     private func persist(_ value: some Encodable, for key: ProfileStorage.Key) {
@@ -107,6 +125,6 @@ final class UserProfile {
         persist(reminders, for: .reminders)
         persist(courses, for: .courses)
         persist(followedTopicIDs, for: .followedTopicIDs)
-        persist(bookmarkedPostIDs, for: .bookmarkedPostIDs)
+        persist(bookmarkedSlugs, for: .bookmarkedSlugs)
     }
 }

@@ -14,7 +14,7 @@ enum ProfileStorage {
         case reminders = "profile.reminders"
         case courses = "profile.courses"
         case followedTopicIDs = "profile.followedTopicIDs"
-        case bookmarkedPostIDs = "profile.bookmarkedPostIDs"
+        case bookmarkedSlugs = "profile.bookmarkedSlugs"
     }
 
     private static let encoder: JSONEncoder = {
@@ -96,8 +96,8 @@ enum ProfileStorage {
 
         // 空数组/空集合边界
         let empty: Set<String> = []
-        save(empty, for: .bookmarkedPostIDs, defaults: suite)
-        check("empty set round-trip", load(Set<String>.self, for: .bookmarkedPostIDs, defaults: suite) == empty)
+        save(empty, for: .bookmarkedSlugs, defaults: suite)
+        check("empty set round-trip", load(Set<String>.self, for: .bookmarkedSlugs, defaults: suite) == empty)
 
         // reset 清空
         ProfileStorage.reset(defaults: suite)

@@ -1,144 +1,126 @@
 import SwiftUI
 
-/// 经验 · 生存手册：节点导航风格，白色圆角卡片内两列分类行。
+/// 经验 · 生存手册：从 `/api/site/docs/survival` 拉真实的「篇 → 组 → 条」文档树。
+///
+/// 形态按需求做成 **list 形式的文档结构**（早期版本是两列卡片网格 + 6 条硬编码假条目）。
 struct HandbookHomeView: View {
-    /// 两列排布：每行一对分类。
-    private var rowPairs: [[HandbookSection]] {
-        let sections = MockData.handbookSections
-        return stride(from: 0, to: sections.count, by: 2).map {
-            Array(sections[$0 ..< min($0 + 2, sections.count)])
-        }
-    }
+    @Environment(ExperienceStore.self) private var store: ExperienceStore?
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                ForEach(Array(rowPairs.enumerated()), id: \.offset) { rowIndex, pair in
-                    HStack(spacing: 0) {
-                        ForEach(pair) { section in
-                            NavigationLink(value: section) {
-                                HandbookNodeCell(section: section, showsDivider: rowIndex < rowPairs.count - 1)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if pair.count == 1 {
-                            Spacer()
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
+            if let store {
+                if store.isLoadingHandbook && store.handbook == nil {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                } else if let error = store.handbookError {
+                    errorState(error)
+                } else if let parts = store.handbook?.parts, !parts.isEmpty {
+                    partList(parts, store: store)
+                } else {
+                    ContentUnavailableView("手册暂无内容", systemImage: "book.closed")
                 }
             }
-            .cardStyle(padding: 0)
-            .padding()
         }
         .groupedBackground()
-    }
-}
-
-/// 节点导航行：圆形彩色 icon + 分类名 + 小字条目数，行间细分隔线。
-private struct HandbookNodeCell: View {
-    let section: HandbookSection
-    let showsDivider: Bool
-
-    private var tint: Color {
-        ForumPalette.solidColor(for: section.id)
+        .task { await store?.loadHandbook() }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: section.systemImage)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(tint, in: .circle)
+    /// 真实文档树：每个「篇」一张卡，篇内按「组」分组列出条目。
+    private func partList(_ parts: [HandbookIndex.Part], store: ExperienceStore) -> some View {
+        LazyVStack(spacing: 16) {
+            ForEach(parts) { part in
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "books.vertical.fill")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(ForumPalette.solidColor(for: part.key), in: .circle)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(section.name)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    Text("\(section.entries.count) 篇条目")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .contentShape(.rect)
-
-            if showsDivider {
-                Divider()
-                    .padding(.leading, 58)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-/// 手册分类页：该分类下的文档条目列表（参考 Apple 健康的分组 List）。
-struct HandbookSectionView: View {
-    let section: HandbookSection
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(section.entries) { entry in
-                    NavigationLink {
-                        HandbookEntryView(entry: entry)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(entry.title)
-                                .font(.subheadline.weight(.medium))
-                            Text(entry.subtitle)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(part.label)
+                                .font(.headline)
+                            Text("\(store.entryCount(of: part)) 篇")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 2)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+
+                    Divider().padding(.leading, 60)
+
+                    ForEach(part.groups) { group in
+                        groupRows(group, in: part)
                     }
                 }
-            } footer: {
-                Text("共 \(section.entries.count) 篇条目")
+                .cardStyle(padding: 0)
             }
         }
-        .navigationTitle(section.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .padding()
     }
-}
 
-/// 手册条目详情：标题、更新时间与正文。
-struct HandbookEntryView: View {
-    let entry: HandbookEntry
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(entry.title)
-                        .font(.title2.weight(.bold))
-                    Text("更新于 \(entry.updatedAt.formatted(date: .abbreviated, time: .omitted))")
+    @ViewBuilder
+    private func groupRows(_ group: HandbookIndex.Group, in part: HandbookIndex.Part) -> some View {
+        // 组标题只在有名字且不是默认空 key 时显示（后端第一组的 key 可能是空串）。
+        if !group.key.isEmpty {
+            Text(group.key)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        ForEach(group.items) { item in
+            NavigationLink(value: DocSearchHit(
+                slug: item.slug,
+                kind: .survival,
+                title: item.title,
+                description: item.description,
+                occurredAt: item.occurredAt,
+                anchor: nil
+            )) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                        if let description = item.description, !description.isEmpty {
+                            Text(description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 4)
-
-                Text(entry.body)
-                    .font(.body)
-                    .lineSpacing(5)
-                    .cardStyle()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .contentShape(.rect)
             }
-            .padding()
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 38)
         }
-        .groupedBackground()
-        .navigationTitle(entry.title)
-        .navigationBarTitleDisplayMode(.inline)
     }
-}
 
-#Preview {
-    NavigationStack {
-        HandbookHomeView()
+    private func errorState(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("手册加载失败", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("重试") { Task { await store?.loadHandbook() } }
+                .buttonStyle(.borderedProminent)
+        }
     }
-    .environment(UserProfile())
 }

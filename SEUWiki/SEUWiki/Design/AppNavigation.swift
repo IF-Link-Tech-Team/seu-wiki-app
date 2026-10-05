@@ -12,9 +12,6 @@ extension View {
             .navigationDestination(for: FeedItem.self) { item in
                 FeedItemDetailView(item: item)
             }
-            .navigationDestination(for: ForumPost.self) { post in
-                ForumPostDetailView(post: post)
-            }
             .navigationDestination(for: DocSearchHit.self) { hit in
                 DocDetailView(slug: hit.slug, kind: hit.kind, highlightAnchor: hit.anchor?.id)
             }

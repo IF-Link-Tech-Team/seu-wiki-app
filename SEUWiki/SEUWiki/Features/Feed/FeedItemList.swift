@@ -96,7 +96,7 @@ private struct FeedItemRow: View {
 
 #Preview {
     NavigationStack {
-        FeedItemList(items: MockData.feedItems)
+        FeedItemList(items: PreviewSample.feedItems)
             .groupedBackground()
             .appNavigationDestinations()
     }

@@ -21,6 +21,6 @@ struct ToolPlaceholderView: View {
 
 #Preview {
     NavigationStack {
-        ToolPlaceholderView(tool: MockData.tools[1])
+        ToolPlaceholderView(tool: ToolCatalog.all[1])
     }
 }

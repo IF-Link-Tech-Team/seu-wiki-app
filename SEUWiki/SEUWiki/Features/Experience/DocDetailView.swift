@@ -17,6 +17,8 @@ struct DocDetailView: View {
     @State private var sections: [DocSection] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @Environment(UserProfile.self) private var profile
+    @State private var isBookmarked = false
 
     private var isHandbook: Bool { kind == .survival }
 
@@ -39,6 +41,20 @@ struct DocDetailView: View {
             .groupedBackground()
             .navigationTitle(isHandbook ? "东大生存手册" : "经验分享")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        toggleBookmark()
+                    } label: {
+                        Label(
+                            isBookmarked ? "取消收藏" : "收藏",
+                            systemImage: isBookmarked ? "bookmark.fill" : "bookmark"
+                        )
+                    }
+                    // 触控区不小于 44pt，图标本身只有 17pt。
+                    .labelStyle(.iconOnly)
+                }
+            }
             .task(id: slug) { await load() }
             .task(id: highlightAnchor) {
                 // 等正文渲染出来再滚，否则目标还不存在。
@@ -169,6 +185,7 @@ struct DocDetailView: View {
         errorMessage = nil
         sections = []
         currentOutlineID = highlightAnchor
+        isBookmarked = profile.bookmarkedSlugs.contains(slug)
         defer { isLoading = false }
         do {
             let loaded = try await FeedAPIClient().docDetail(slug: slug)
@@ -178,6 +195,15 @@ struct DocDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func toggleBookmark() {
+        if profile.bookmarkedSlugs.contains(slug) {
+            profile.bookmarkedSlugs.remove(slug)
+        } else {
+            profile.bookmarkedSlugs.insert(slug)
+        }
+        isBookmarked = profile.bookmarkedSlugs.contains(slug)
     }
 }
 

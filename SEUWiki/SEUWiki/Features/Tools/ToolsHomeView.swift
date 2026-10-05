@@ -14,7 +14,7 @@ struct ToolsHomeView: View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(MockData.tools) { tool in
+                    ForEach(ToolCatalog.all) { tool in
                         NavigationLink(value: tool) {
                             ToolCard(tool: tool, subtitle: liveSubtitle(for: tool))
                         }

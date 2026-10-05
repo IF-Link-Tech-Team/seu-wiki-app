@@ -2,6 +2,10 @@ import SwiftUI
 
 /// 个人页面与设置：以 sheet 从各 Tab 右上角弹出。
 /// 登录走 IF.Link 生态自部署 Logto（auth.iflink.tech），OIDC 授权码 + PKCE。
+///
+/// **本地功能不再藏在登录门后**（I-9）：提醒、收藏、画像、设置都是本地数据，
+/// 未登录也能设提醒 —— 早期版本把它们放在 `if auth.isLoggedIn` 里，用户能设却看不到、
+/// 更删不掉。需要登录的只有账号区本身和「退出登录」。
 struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(UserProfile.self) private var profile
@@ -32,16 +36,14 @@ struct ProfileView: View {
                 }
 
                 PersonaSection()
+                RemindersSection()
+                BookmarksSection()
+                SettingsSection()
 
                 if auth.isLoggedIn {
-                    RemindersSection()
-                    BookmarksSection()
-                    FollowedTopicsSection()
-                    SettingsSection()
-
                     Section {
                         Button(role: .destructive) {
-                            withAnimation(.smooth) { auth.logout() }
+                            confirmsLogout = true
                         } label: {
                             Text("退出登录")
                                 .frame(maxWidth: .infinity)
@@ -60,8 +62,19 @@ struct ProfileView: View {
                     Button("完成") { dismiss() }
                 }
             }
+            // 危险操作必须确认：登出会吊销 refresh token，误触的代价不小。
+            .confirmationDialog("确定退出登录？", isPresented: $confirmsLogout, titleVisibility: .visible) {
+                Button("退出登录", role: .destructive) {
+                    withAnimation(.smooth) { auth.logout() }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("会清除本机登录状态。收藏、提醒与画像都存在本机，不会丢失。")
+            }
         }
     }
+
+    @State private var confirmsLogout = false
 }
 
 /// 未登录态顶部的登录引导卡。
@@ -77,7 +90,7 @@ private struct LoginPromptSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("未登录")
                         .font(.headline)
-                    Text("登录 IF.Link 账号，同步收藏、提醒与关注的话题")
+                    Text("登录 IF.Link 账号后，社区发帖、关注与云端同步将可用。提醒、收藏与画像现在就能用。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -110,6 +123,7 @@ private struct AccountHeaderSection: View {
                     .foregroundStyle(.white)
                     .frame(width: 56, height: 56)
                     .background(Color.accentColor.gradient, in: .circle)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(auth.displayName)
@@ -158,7 +172,7 @@ private struct PersonaSection: View {
         } header: {
             Text("我的画像")
         } footer: {
-            Text("画像用于主页「为你推荐」匹配，未登录也可编辑。")
+            Text("画像用于「为你精选」的匹配，存在本机，未登录也可编辑。改了画像会立即重新匹配。")
         }
     }
 }
@@ -168,107 +182,137 @@ private struct RemindersSection: View {
     @Environment(UserProfile.self) private var profile
 
     var body: some View {
-        Section("我的提醒") {
+        Section {
             if profile.reminders.isEmpty {
                 Text("暂无提醒，可在资讯详情页设定")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(profile.reminders) { reminder in
-                    HStack(spacing: 12) {
-                        Image(systemName: "bell.fill")
-                            .foregroundStyle(.orange)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(reminder.title)
-                                .font(.subheadline.weight(.medium))
-                            Text("\(reminder.dueDate, style: .date) 截止 · 提前 \(reminder.advanceDays) 天提醒")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(reminder.daysRemaining > 0 ? "剩 \(reminder.daysRemaining) 天" : "今天")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(reminder.daysRemaining <= 2 ? .red : .secondary)
-                    }
+                    ReminderRow(reminder: reminder)
                 }
                 .onDelete { offsets in
+                    // 删除提醒必须同步取消已排程的系统通知，否则用户删了还会被弹醒。
+                    for index in offsets {
+                        ReminderScheduler.shared.cancel(id: profile.reminders[index].notificationID)
+                    }
                     profile.reminders.remove(atOffsets: offsets)
                 }
             }
+        } header: {
+            Text("我的提醒")
+        } footer: {
+            if !profile.reminders.isEmpty {
+                Text("提醒会通过系统通知在截止前发出。删除提醒会同时取消对应的通知。")
+            }
         }
     }
 }
 
-/// 「我的收藏」：bookmarkedPostIDs 对应的经验帖，跳转帖子详情。
-private struct BookmarksSection: View {
-    @Environment(UserProfile.self) private var profile
-
-    private var bookmarkedPosts: [ForumPost] {
-        MockData.forumPosts.filter { profile.bookmarkedPostIDs.contains($0.id) }
-    }
+private struct ReminderRow: View {
+    let reminder: CampusReminder
 
     var body: some View {
-        Section("我的收藏") {
-            if bookmarkedPosts.isEmpty {
-                Text("暂无收藏，在经验帖详情页收藏后显示在这里")
+        HStack(spacing: 12) {
+            Image(systemName: reminder.isExpired ? "bell.slash" : "bell.fill")
+                .foregroundStyle(reminder.isExpired ? Color.secondary : Color.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(reminder.title)
+                    .font(.subheadline.weight(.medium))
+                Text("\(TimeFormat.deadline(reminder.dueDate)) 截止 · 提前 \(reminder.advanceDays) 天提醒")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            // 过期的不能再显示「今天」—— 那是明显错误的主张。
+            Text(badge)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(reminder.isExpired ? Color.secondary : (reminder.daysRemaining <= 2 ? Color.red : Color.secondary))
+        }
+    }
+
+    private var badge: String {
+        if reminder.isExpired { return "已过期" }
+        if reminder.daysRemaining == 0 { return "今天" }
+        if reminder.daysRemaining == 1 { return "明天" }
+        return "剩 \(reminder.daysRemaining) 天"
+    }
+}
+
+/// 「我的收藏」：收藏的手册/经验长文。
+///
+/// 收藏对象从「论坛帖子 id」换成「长文 slug」：论坛后端至今没有可调用的 HTTP 路由，
+/// 收藏帖子存下来也永远点不开。现在收藏的是 `/api/site/docs/*` 的真实内容，
+/// 在手册/经验详情页收藏，这里能真正打开。
+private struct BookmarksSection: View {
+    @Environment(UserProfile.self) private var profile
+    @State private var store = ExperienceStore()
+
+    var body: some View {
+        Section {
+            if profile.bookmarkedSlugs.isEmpty {
+                Text("暂无收藏，在手册或经验详情页点右上角收藏后会出现在这里")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(bookmarkedPosts) { post in
-                    NavigationLink(value: post) {
+                ForEach(bookmarked, id: \.slug) { item in
+                    NavigationLink(value: DocSearchHit(
+                        slug: item.slug,
+                        kind: item.kind == "experience" ? .experience : .survival,
+                        title: item.title,
+                        description: item.description,
+                        occurredAt: item.occurredAt,
+                        anchor: nil
+                    )) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(post.title)
+                            Text(item.title)
                                 .font(.subheadline.weight(.medium))
                                 .lineLimit(2)
-                            Text("\(post.authorName) · \(post.createdAt, style: .relative)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            if let description = item.description, !description.isEmpty {
+                                Text(description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }
             }
+        } header: {
+            Text("我的收藏")
         }
-    }
-}
-
-/// 「关注的话题」：followedTopicIDs 对应的话题。
-private struct FollowedTopicsSection: View {
-    @Environment(UserProfile.self) private var profile
-
-    private var followedTopics: [ForumTopic] {
-        MockData.topics.filter { profile.followedTopicIDs.contains($0.id) }
+        .task { await loadBookmarks() }
     }
 
-    var body: some View {
-        Section("关注的话题") {
-            if followedTopics.isEmpty {
-                Text("暂无关注，去论坛话题页看看")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(followedTopics) { topic in
-                    Label {
-                        Text(topic.name)
-                    } icon: {
-                        Image(systemName: topic.systemImage)
-                            .foregroundStyle(.orange)
-                    }
-                    .badge(topic.postCount)
-                }
-            }
-        }
+    /// 收藏只存了 slug，标题要从索引里回填。手册和经验两个索引都拉一次，
+    /// 命中哪个用哪个；都没命中（内容下线）就如实跳过而不是显示空白。
+    @State private var bookmarked: [DocItem] = []
+
+    private func loadBookmarks() async {
+        guard !profile.bookmarkedSlugs.isEmpty else { return }
+        await store.loadHandbook()
+        await store.loadExperience()
+        let all = (store.handbook?.parts.flatMap { $0.groups.flatMap(\.items) } ?? [])
+            + (store.experience?.items ?? [])
+        var seen = Set<String>()
+        bookmarked = all
+            .filter { profile.bookmarkedSlugs.contains($0.slug) && seen.insert($0.slug).inserted }
+            .sorted { $0.title < $1.title }
     }
 }
 
 /// 「设置」：通知开关、外观偏好、关于。
 private struct SettingsSection: View {
     @AppStorage("settings.notificationsEnabled") private var notificationsEnabled = true
-    /// 外观偏好仅存本地；后续在 App 根视图读取并应用 `preferredColorScheme`。
     @AppStorage("settings.appearance") private var appearance: AppAppearance = .system
 
     var body: some View {
         Section("设置") {
             Toggle("接收通知", systemImage: "bell.badge", isOn: $notificationsEnabled)
+                .onChange(of: notificationsEnabled) { _, enabled in
+                    // 开关要真的生效：关掉时把已排程的通知全部撤掉。
+                    ReminderScheduler.shared.setGloballyEnabled(enabled)
+                }
             Picker(selection: $appearance) {
                 ForEach(AppAppearance.allCases) { option in
                     Text(option.name).tag(option)
@@ -285,7 +329,8 @@ private struct SettingsSection: View {
     }
 }
 
-/// 外观偏好（本地存储，后续由 App 根视图应用到 preferredColorScheme）。
+/// 外观偏好。由 `SEUWikiApp` 读取并应用到 `preferredColorScheme` —— 早期版本
+/// 这里只存不使用，开关拨了没有任何反应。
 enum AppAppearance: String, CaseIterable, Identifiable {
     case system, light, dark
 
@@ -296,6 +341,14 @@ enum AppAppearance: String, CaseIterable, Identifiable {
         case .system: "跟随系统"
         case .light: "浅色"
         case .dark: "深色"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
         }
     }
 }
@@ -325,7 +378,17 @@ private struct AboutView: View {
                 LabeledContent("构建", value: "本地开发版")
                 LabeledContent("生态", value: "IF.Link")
             } footer: {
-                Text("登录服务由自部署 Logto（auth.iflink.tech）提供。")
+                Text("登录服务由自部署 Logto（auth.iflink.tech）提供。\n资讯与手册内容来自 seu.wiki。")
+            }
+
+            Section("功能状态") {
+                LabeledContent("资讯聚合", value: "已上线")
+                LabeledContent("为你精选", value: "已上线")
+                LabeledContent("东大生存手册", value: "已上线")
+                LabeledContent("经验长文", value: "已上线")
+                LabeledContent("提醒推送", value: "已上线")
+                LabeledContent("社区（发帖/点赞/评论）", value: "开发中")
+                LabeledContent("课表与绩点", value: "本机记录")
             }
         }
         .navigationTitle("关于")

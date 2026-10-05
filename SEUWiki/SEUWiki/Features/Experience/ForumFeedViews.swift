@@ -10,11 +10,6 @@ func forumCompactCount(_ value: Int) -> String {
     }
 }
 
-/// 话题 slug → 显示名。
-func forumTopicName(for slug: String) -> String? {
-    MockData.topics.first { $0.id == slug }?.name
-}
-
 /// 论坛/手册共用的确定式配色：同一 key 恒定同色。
 enum ForumPalette {
     static let colors: [Color] = [.blue, .green, .orange, .pink, .purple, .teal, .indigo, .mint]
@@ -59,125 +54,255 @@ struct ForumAvatar: View {
             .foregroundStyle(tint)
             .frame(width: size, height: size)
             .background(tint.opacity(0.14), in: .circle)
+            .accessibilityHidden(true)
     }
 }
 
-/// 帖子卡片：标题、两行摘要、作者行与互动数据，精选帖带 accent 标记。
-struct ForumPostCard: View {
-    let post: ForumPost
+extension DocItem {
+    /// 供 `NavigationLink(value:)` 使用的目标值。
+    var navigationValue: DocSearchHit {
+        DocSearchHit(
+            slug: slug,
+            kind: .experience,
+            title: title,
+            description: description,
+            occurredAt: occurredAt,
+            anchor: nil
+        )
+    }
+}
+
+/// 经验长文卡片：标题 + 摘要 + 作者/分类 + 所属信源。
+///
+/// 数据来自 `/api/site/docs/experience`，是**真实内容**。早期版本这里是编造的帖子
+/// （虚构作者「林晚舟」、编造的 1893 赞 / 342 评论），界面上没有任何标记。
+struct ExperienceDocCard: View {
+    let item: DocItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                if post.isFeatured {
-                    Text("精选")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .foregroundStyle(Color.accentColor)
-                        .background(Color.accentColor.opacity(0.12), in: .capsule)
-                }
-                if let slug = post.tags.first, let topicName = forumTopicName(for: slug) {
-                    Text(topicName)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
-                }
-                Spacer()
-                Text(post.createdAt, style: .relative)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Text(post.title)
+            Text(item.title)
                 .font(.headline)
-                .lineLimit(2)
+                .multilineTextAlignment(.leading)
 
-            Text(post.excerpt)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            if let description = item.description, !description.isEmpty {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+            }
 
             HStack(spacing: 6) {
-                ForumAvatar(name: post.authorName, size: 22)
-                Text(post.authorName)
-                    .font(.caption.weight(.medium))
-                Text("·")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                Text(post.authorHeadline)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                ForEach(metaChips, id: \.self) { chip in
+                    Text(chip)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color(.tertiarySystemFill), in: .capsule)
+                }
             }
-
-            HStack(spacing: 14) {
-                Label(forumCompactCount(post.likesCount), systemImage: "heart")
-                Label(forumCompactCount(post.commentsCount), systemImage: "bubble.right")
-                Label(forumCompactCount(post.viewsCount), systemImage: "eye")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
+    }
+
+    private var metaChips: [String] {
+        var chips: [String] = []
+        if let author = item.author, !author.isEmpty { chips.append(author) }
+        if let category = item.category, !category.isEmpty { chips.append(category) }
+        if let grade = item.grade, !grade.isEmpty, grade != "全年级" { chips.append(grade) }
+        if let college = item.college, !college.isEmpty, college != "通用" { chips.append(college) }
+        if let occurred = item.occurredAt, !occurred.isEmpty { chips.append(occurred) }
+        return chips
     }
 }
 
-/// 经验 · 热门：按点赞数排序的帖子卡片流。
+/// 经验 · 热门：经验长文列表（真实数据）。
 struct ForumHotFeedView: View {
-    private var posts: [ForumPost] {
-        MockData.forumPosts.sorted { $0.likesCount > $1.likesCount }
-    }
+    @Environment(ExperienceStore.self) private var store: ExperienceStore?
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(posts) { post in
-                    NavigationLink(value: post) {
-                        ForumPostCard(post: post)
+            if let store {
+                if store.isLoadingExperience && store.experience == nil {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                } else if let error = store.experienceError {
+                    errorState(error)
+                } else if let items = store.experience?.items, !items.isEmpty {
+                    LazyVStack(spacing: 12) {
+                        ForEach(items) { item in
+                            NavigationLink(value: item.navigationValue) {
+                                ExperienceDocCard(item: item)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding()
+                } else {
+                    ContentUnavailableView("暂无经验内容", systemImage: "text.book.closed")
+                }
+            }
+        }
+        .groupedBackground()
+        .task { await store?.loadExperience() }
+    }
+
+    private func errorState(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("加载失败", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("重试") { Task { await store?.loadExperience() } }
+                .buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+/// 经验 · 话题：用后端下发的**真实分面**（场景 / 年级 / 学院）做话题广场。
+///
+/// 早期版本用本地硬编码的 9 个话题 slug，且子话题筛选拿中文名去匹配 slug，
+/// 结果永远为空（I-7）。
+struct ForumTopicsSquareView: View {
+    @Environment(ExperienceStore.self) private var store: ExperienceStore?
+
+    var body: some View {
+        ScrollView {
+            if let store {
+                if store.isLoadingExperience && store.experience == nil {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                } else if let error = store.experienceError {
+                    ContentUnavailableView {
+                        Label("加载失败", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("重试") { Task { await store.loadExperience() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    facets(store)
+                    resultList(store)
+                }
+            }
+        }
+        .groupedBackground()
+        .task { await store?.loadExperience() }
+    }
+
+    @ViewBuilder
+    private func facets(_ store: ExperienceStore) -> some View {
+        let filters = store.experience?.filters ?? []
+        if !filters.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(filters) { facet in
+                    facetRow(facet, store: store)
+                }
+                if store.hasActiveFacets {
+                    Button("清除筛选", systemImage: "xmark.circle") {
+                        store.clearFacets()
+                        Task { await store.reloadExperience() }
+                    }
+                    .font(.footnote)
+                    .buttonStyle(.borderless)
                 }
             }
             .padding()
         }
-        .groupedBackground()
-    }
-}
-
-/// 经验 · 关注：已关注话题下的最新帖子；空态引导去话题广场。
-struct ForumFollowingFeedView: View {
-    @Environment(UserProfile.self) private var profile
-    let onBrowseTopics: () -> Void
-
-    private var posts: [ForumPost] {
-        MockData.forumPosts
-            .filter { post in post.tags.contains { profile.followedTopicIDs.contains($0) } }
-            .sorted { $0.createdAt > $1.createdAt }
     }
 
-    var body: some View {
-        ScrollView {
-            if posts.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有关注的话题", systemImage: "star")
-                } description: {
-                    Text("去话题广场关注感兴趣的话题，相关新帖会出现在这里。")
-                } actions: {
-                    Button("浏览话题广场", action: onBrowseTopics)
-                        .buttonStyle(.borderedProminent)
-                }
-                .containerRelativeFrame(.vertical)
-            } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(posts) { post in
-                        NavigationLink(value: post) {
-                            ForumPostCard(post: post)
+    private func facetRow(_ facet: ExperienceIndex.Facet, store: ExperienceStore) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(facet.label)
+                .font(.subheadline.weight(.semibold))
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(facet.values, id: \.self) { value in
+                        let selected = store.isSelected(value, inFacet: facet.key)
+                        Button {
+                            store.toggle(value, inFacet: facet.key)
+                            Task { await store.reloadExperience() }
+                        } label: {
+                            Text(value)
+                                .font(.footnote)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color(.tertiarySystemFill)),
+                                    in: .capsule
+                                )
+                                .foregroundStyle(selected ? Color.white : Color.primary)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 1)
             }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private func resultList(_ store: ExperienceStore) -> some View {
+        let items = store.experience?.items ?? []
+        if items.isEmpty {
+            ContentUnavailableView("没有符合条件的内容", systemImage: "line.3.horizontal.decrease.circle")
+                .padding(.top, 20)
+        } else {
+            LazyVStack(spacing: 12) {
+                ForEach(items) { item in
+                    NavigationLink(value: item.navigationValue) {
+                        ExperienceDocCard(item: item)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom)
+        }
+    }
+}
+
+/// 经验 · 关注：论坛 UGC 尚未接通，如实说明而不是编造帖子。
+///
+/// `seu-wiki-forum` 仓库里只有 Supabase migration，没有任何可供客户端调用的 HTTP 路由，
+/// 所以「关注的话题的新帖」在服务端根本不存在。宁可空着并说清楚，也不要拿假帖子填。
+struct ForumFollowingFeedView: View {
+    @Environment(UserProfile.self) private var profile
+    let onBrowseTopics: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                ContentUnavailableView {
+                    Label("社区功能即将上线", systemImage: "person.2.badge.gearshape")
+                } description: {
+                    Text("关注话题、订阅作者、发帖与互动正在开发中。\n现在可以先看看经验长文与东大生存手册。")
+                } actions: {
+                    Button("浏览经验内容", action: onBrowseTopics)
+                        .buttonStyle(.borderedProminent)
+                }
+
+                if !profile.followedTopicIDs.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("你关注的话题")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(profile.followedTopicIDs.sorted().joined(separator: "、"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardStyle()
+                }
+            }
+            .padding()
         }
         .groupedBackground()
     }
@@ -189,6 +314,7 @@ struct ForumFollowingFeedView: View {
             .appNavigationDestinations()
     }
     .environment(UserProfile())
+    .environment(ExperienceStore())
 }
 
 #Preview("关注") {
@@ -196,4 +322,5 @@ struct ForumFollowingFeedView: View {
         ForumFollowingFeedView(onBrowseTopics: {})
     }
     .environment(UserProfile())
+    .environment(ExperienceStore())
 }

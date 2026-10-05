@@ -2,21 +2,30 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(UserProfile.self) private var profile
-    @Environment(FeedStore.self) private var store
+    @Environment(FeedStore.self) private var feedStore
+    @State private var experienceStore = ExperienceStore()
     @State private var showsProfile = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    HStack(spacing: 12) {
-                        ReminderCard(reminder: profile.reminders.min { $0.dueDate < $1.dueDate })
-                        NextCourseCard(course: profile.nextCourse)
+                    // 提醒卡 / 课程卡并排；大字号下改为竖排（AX1 以上两列会挤到截断）。
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) {
+                            reminderCard
+                            nextCourseCard
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        VStack(spacing: 12) {
+                            reminderCard
+                            nextCourseCard
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    .fixedSize(horizontal: false, vertical: true)
 
                     HomeFeedSection(items: feedItems)
-                    HomeForumSection(posts: Array(MockData.forumPosts.prefix(3)))
+                    HomeForumSection()
                 }
                 .padding()
             }
@@ -25,21 +34,32 @@ struct HomeView: View {
             .profileEntry(isPresented: $showsProfile)
             .appNavigationDestinations()
             .task {
-                await store.loadIfNeeded(scope: .forYou, profile: profile)
+                await feedStore.loadIfNeeded(scope: .forYou, profile: profile)
             }
         }
+        .environment(experienceStore)
     }
 
-    /// 首页通知区用「为你精选」第一页；未加载时（含 Preview）回退 Mock 精选，加载失败时
-    /// store 本身已回退 Mock，此处总是有内容。
+    private var reminderCard: some View {
+        ReminderCard(reminder: profile.nextPendingReminder)
+    }
+
+    private var nextCourseCard: some View {
+        NextCourseCard(course: profile.nextCourse)
+    }
+
+    /// 首页通知区用「为你精选」第一页。
+    ///
+    /// 加载失败时**不**用样例数据兜底 —— 首页是用户对 App 的第一印象，
+    /// 拿编造的通知填满首屏比显示一个错误态糟糕得多。`FeedStore` 失败时会置
+    /// `isOffline`，由 `HomeFeedSection` 展示错误态与重试。
     private var feedItems: [FeedItem] {
-        let items = store.page(for: .forYou).items
-        return items.isEmpty ? MockData.feedItems.filter(\.isSelected) : items
+        feedStore.page(for: .forYou).items
     }
 }
 
 #Preview {
     HomeView()
         .environment(UserProfile())
-        .environment(FeedStore(mockOnly: true))
+        .environment(FeedStore())
 }

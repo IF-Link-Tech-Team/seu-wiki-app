@@ -1,7 +1,16 @@
 import Foundation
 
-/// 开发用样例数据，结构对齐 seu-wiki-v2 与 iflab-forum 的真实 API。
-enum MockData {
+/// **只用于 SwiftUI Preview 与 Debug 的开发样例数据。**
+///
+/// 结构对齐 seu-wiki-v2 与 iflab-forum 的真实 API，但内容全是编造的
+/// （虚构作者「林晚舟」、虚构的 1893 赞 / 342 评论等）。
+///
+/// 生产路径**不允许**引用本类型：它以前叫 `MockData`，而且被当成了真实数据直接
+/// 展示给用户 —— 首次启动就把编造的提醒和课表写进了 UserDefaults，搜索失败时
+/// 静默回退到它。现在真数据全部走 `/api/site/*`，这里只服务预览。
+/// 验收方式：`grep -rn "PreviewSample" --include=*.swift . | grep -v "#Preview"`
+/// 应当只在注释里命中。
+enum PreviewSample {
 
     static let feedItems: [FeedItem] = [
         FeedItem(
@@ -199,14 +208,4 @@ enum MockData {
         Course(name: "机器学习导论", teacher: "王教授", location: "计软楼-301", weekday: 1, startHour: 8, startMinute: 0, endHour: 9, endMinute: 40),
     ]
 
-    static let tools: [ToolItem] = [
-        ToolItem(id: "timetable", name: "课表", systemImage: "calendar.day.timeline.left", tint: .blue, subtitle: "今日 2 节课"),
-        ToolItem(id: "gpa", name: "绩点计算", systemImage: "percent", tint: .green, subtitle: "五分制换算"),
-        ToolItem(id: "exam", name: "考试安排", systemImage: "pencil.and.list.clipboard", tint: .orange, subtitle: "期末倒计时"),
-        ToolItem(id: "library", name: "图书馆", systemImage: "books.vertical", tint: .purple, subtitle: "借阅与研讨间"),
-        ToolItem(id: "card", name: "校园卡", systemImage: "creditcard", tint: .pink, subtitle: "余额与流水"),
-        ToolItem(id: "bus", name: "班车查询", systemImage: "bus", tint: .teal, subtitle: "三校区通勤"),
-        ToolItem(id: "map", name: "校园地图", systemImage: "map", tint: .mint, subtitle: "楼宇导航"),
-        ToolItem(id: "elective", name: "选课助手", systemImage: "checklist", tint: .indigo, subtitle: "避雷与推荐"),
-    ]
 }
