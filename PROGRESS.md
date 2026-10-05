@@ -1,39 +1,86 @@
 # 开发进度
 
-## 已完成（2026-10-04）
+## 当前状态（2026-10-06）
 
-- [x] Xcode 工程脚手架（iOS 26 / Swift 6.2，文件系统同步组，`SEUWiki/SEUWiki/`）
-- [x] 五 Tab 骨架：`Tab` API + `Tab(role: .search)` + `tabBarMinimizeBehavior(.onScrollDown)`
-- [x] 数据模型对齐真实 API：FeedItem/CampusAudience（seu-wiki-v2）、ForumPost/Topic（iflab-forum）、手册/提醒/课程/工具
-- [x] 设计系统：cardStyle、groupedBackground、ConsoleBar、profileEntry、appNavigationDestinations
-- [x] 主页：bento（提醒倒计时 + 下一节课）+ 与我有关的通知 + 论坛新帖
-- [x] 资讯：为你精选 / 全部（筛选 sheet）/ 8 分类 console；详情页底部「在网页中打开 + 设定提醒」；提醒编辑对齐提醒事项（原生 Form/DatePicker）
-- [x] 经验：热门/关注/话题/生存手册 四 console + 侧滑切换；话题广场（播客分类式彩卡）；手册分类（节点导航式两列）→ 分组 List → 文档页；帖子详情（点赞/收藏/评论楼中楼）
-- [x] 工具：快捷指令资料库式彩色网格；课表页（与主页联动，同读 UserProfile.courses）
-- [x] 搜索：三信源聚合（通知/经验/手册分区卡片 + 查看更多 + 命中加粗高亮 + scope console）
-- [x] 个人页：原生登录 UI（AuthStore stub）+ 画像编辑 + 我的提醒/收藏/关注
-- [x] seu-forum 后端（独立 git 仓库 `seu-forum/`）：复刻 iflab-forum，裁剪 products 线（−5213 行）、话题目录替换为 8 主题 + 29 子标签、品牌重写；tsc/eslint/next build/21 项测试/PostgreSQL 权限门禁全部通过
-- [x] seu-forum 已部署到 iflink-prod：`seu_forum` 库 + `seu-forum-postgrest`:3503 + `seu-forum-app`:3502（healthy）+ Caddy `http://forum.seu.wiki` 已按 Host 路由配好；公网待 EdgeOne DNS（用户操作）；Logto/COS 为占位凭据
-- [x] Logto 登录基础：URL scheme `tech.iflink.seuwiki` + AuthConfig 单点配置（clientID 待注册）
-- [x] 资讯模块接线上真实 API（https://seu.wiki，timeline/for-you cursor 分页 + 详情 + Mock 离线回退）；主页通知区同步接 for-you
-- [x] UserProfile 本地持久化（UserDefaults + Codable，8 项属性自动落盘/启动恢复，DEBUG 自检）
-- [x] 工具页绩点计算器（五分制换算、加权汇总、本地持久化；换算规则为手册假设，待教务处口径确认）
-- [x] 搜索「通知」信源接线上 /api/site/pool（防抖/分页/Mock 回退）；经验信源已抽象 provider 待接 seu-forum
-- [x] App 图标（东大绿 + 白色书本/W，CoreGraphics 生成，模拟器主屏验证）
+iOS 端 10 个 commit，双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
+自检 44/44 通过，模拟器逐屏截图验收（浅色 + 深色）。
 
-## 下一步（按优先级）
+## 已完成
 
-1. **等待用户操作**：EdgeOne 配 forum.seu.wiki（配好后公网验证 + 论坛/搜索经验信源接 seu-forum 真实数据）；Logto 控制台注册 Web 应用（论坛）+ Native 应用（iOS）——两组 App ID/Secret 到手后接登录
-2. **论坛接 seu-forum**：经验模块帖子/评论/点赞从 seu-forum API 读取（等 DNS 生效）
-5. **推送**：APNs（seu-wiki-v2 无 push 通道，需基于 /api/v1/selected/changes 自建）
-6. **工具页实功能**：课表数据源（教务系统）、考试安排
-7. **启动屏**：Launch Screen 品牌化（当前系统默认）
+### 数据层：全部接真实后端
+
+- [x] `/api/site/timeline`、`/api/site/for-you`、`/api/site/items/{id}`（cursor 分页 + 去重）
+- [x] `/api/site/pool?q=&type=` 统一搜索三信源，**三信源全部真实**
+- [x] `/api/site/docs/survival` 手册目录树（篇→组→条）
+- [x] `/api/site/docs/experience` 经验长文 + 分面筛选
+- [x] `/api/site/docs/{slug}` 长文详情：HTML 按标题切分正文、目录跳转、锚点定位
+- [x] 失败与空结果**分开**处理（S-10），不再回退 Mock
+- [x] 不给 `/api/site/*` 发 token（S-12）
+- [x] `campus`/`audience`/`deadline` 后端不返回 → 不编造默认值，筛选项显式置灰（S-4 / S-11）
+
+### 会话安全
+
+- [x] 仅 400 `invalid_grant` / 401 才清会话，网络抖动不再误登出（S-1）
+- [x] `refreshTask` 合并 + `sessionGeneration` 防登出后被并发续期复活（S-2）
+- [x] token 存 Keychain（`AfterFirstUnlockThisDeviceOnly`）+ 一次性明文迁移（S-3）
+- [x] 始终带 `prompt=consent`，登出走 RFC 7009 吊销 + `prompt=login`（S-6 / S-7）
+
+### 提醒闭环
+
+- [x] `ReminderScheduler`：`UNCalendarNotificationTrigger` 排程、授权、删除即取消、冷启动 `reconcile` 对账、总开关（S-5）
+- [x] 提醒可编辑/删除；过期提醒自动清理（S-13）
+
+### 界面
+
+- [x] 五个 Tab 均为真实数据，删除全部编造帖子/正文/评论/点赞（I-1）
+- [x] 课表可增删改并落盘（I-8）
+- [x] 本地化：`developmentRegion = zh-Hans`，相对时间全中文化（I-2）
+- [x] 深色对比度：新增 `AccentInk.colorset`（深色下 `#00382B`，7.08:1 替代白字 1.83:1）
+- [x] 工具卡 WCAG 自动选色；adaptive 网格
+- [x] 未上线工具显式标注「即将推出」并置灰（I-15）
+- [x] `ConsoleBar` 用 `.safeAreaBar(edge: .top)` 固定（I-6）
+- [x] 主页卡片可点并跨 tab 跳转
+
+### 健壮性
+
+- [x] 持久化 schema 版本 + `.corruptBackup` 备份 + 逐字段容错解码（S-14）
+- [x] 分页竞态用 generation 计数器解决（S-9）
+- [x] 改画像重置 for-you cursor（S-8）
+- [x] 绝对时间统一格式（I-12）
+
+### 自检套件
+
+`Services/SelfCheck.swift`，44 条断言，DEBUG 启动自动跑。**它抓到了三个代码审查看不出的真 bug**：
+
+| 断言组 | 抓到的 bug |
+|---|---|
+| `checkGPA` | `Double("inf")` 返回 `inf` 而非 nil → 绩点/学分 NaN |
+| `checkURLAssembly` | `URLComponents.path` 把已编码的 `%` 二次转义成 `%25` → **全站中文文档详情 404** |
+| `checkDocDetailContract` | 后端字段是 `headings`/`depth`，代码写成 `outline`/`level` → **目录永远空白**（字段名写错不抛错，只是解成 nil） |
+
+## 已知待办
+
+- [ ] **S-15 绩点口径**：现按 4.8 制换算，代码注释已标注这是手册假设，**需向教务处核实**
+- [ ] **登录无法端到端验证**：Logto 授权码 + PKCE 需要交互式浏览器 + 真实凭据。S-1/S-2/S-6/S-7 是靠代码审查 + 对真实 token/revocation 端点 `curl` 验证的，**不是**真的登进去过
+- [ ] **论坛 UGC 不接通**：`seu-wiki-forum` 无任何 HTTP API 路由（仅 Supabase migration）。端内「关注」页如实说明「社区功能即将上线」，不展示编造内容
+- [ ] 后端补齐 `campus` 字段后，移除 `FeedFilter.supportsAudienceFilter = false` 即可开放学院/学段筛选
+- [ ] APNs 推送（seu-wiki-v2 无 push 通道）
+- [ ] 启动屏品牌化（当前系统默认）
 
 ## 构建验证
 
 ```bash
 xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath /tmp/dd build
 ```
 
-模拟器截图验证：`xcrun simctl install/launch/io screenshot`，bundle id `tech.iflink.seuwiki`。
+无头模拟器验收（仅 DEBUG）：
+
+```bash
+xcrun simctl install booted /tmp/dd/Build/Products/Debug-iphonesimulator/SEUWiki.app
+xcrun simctl launch booted tech.iflink.seuwiki -uitab experience
+xcrun simctl launch booted tech.iflink.seuwiki -uidoc "survival/观点篇/1-认识"
+xcrun simctl io booted screenshot /tmp/shot.png
+```
+
+模拟器截图验证是**唯一**能发现这类静默 bug 的手段——上面三个 bug 有两个是截图直接看出来的。
