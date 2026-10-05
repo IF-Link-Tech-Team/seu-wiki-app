@@ -125,10 +125,8 @@ final class SearchStore {
         do {
             let result = try await client.pool(query: key, type: .all, page: feed.page + 1)
             guard keyword == key else { return }
-            // 按 id 去重：pool 的排序会随内容热度漂移，跨页出现重复 id 是现实场景。
-            // 不去重会让 ForEach 行为未定义。
-            var seen = Set(feed.items.map(\.id))
-            feed.items.append(contentsOf: result.items.filter { seen.insert($0.id).inserted })
+            // 按 id 去重（实现见 `Paging.merge`）。
+            feed.items = Paging.merge(existing: feed.items, incoming: result.items)
             feed.page = result.page
             feed.pageCount = result.pageCount
             feed.total = result.total

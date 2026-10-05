@@ -11,22 +11,32 @@ struct FeedFilterView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("学院") {
+                Section {
                     Toggle("只看我的学院", isOn: $filter.onlyMyCollege)
                     if filter.onlyMyCollege {
                         LabeledContent("当前学院", value: profile.college)
-                            .foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("学院")
+                } footer: {
+                    // 不做成「能勾但没效果」的假开关。
+                    Text("资讯接口目前不返回条目的受众信息，无法按学院过滤。待后端补上后会开放。")
                 }
+                .disabled(!FeedFilter.supportsAudienceFilter)
 
-                Section("学段") {
+                Section {
                     Picker("学段", selection: $filter.degree) {
                         Text("全部").tag(String?.none)
                         ForEach(Self.degrees, id: \.self) { degree in
                             Text(degree).tag(String?.some(degree))
                         }
                     }
+                } header: {
+                    Text("学段")
+                } footer: {
+                    Text("同上：需要后端下发受众信息才能生效。")
                 }
+                .disabled(!FeedFilter.supportsAudienceFilter)
 
                 Section("分类") {
                     ForEach(FeedCategory.allCases) { category in

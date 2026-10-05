@@ -25,19 +25,31 @@ enum FeedScope: Hashable, Identifiable {
     static let scopes: [FeedScope] = [.forYou, .all] + FeedCategory.allCases.map { .category($0) }
 }
 
-/// 「全部」列表的筛选条件：学院开关、学段、分类多选。
+/// 「全部」列表的筛选条件。
+///
+/// ⚠️ **只有分类筛选是真实生效的。** 后端 `toFeedItemSummary` 从不下发 `campus`
+/// 受众字段（学院 / 学段 / 截止时间），所以「只看我的学院」和「学段」两个条件
+/// 在客户端**永远匹配不到任何东西** —— 早期版本把它们做成可用的开关，用户勾了之后
+/// 列表却完全不变，还以为是自己选错了学院。
+///
+/// 现在的处理：这两个条件在筛选面板里明确置灰并写清原因，不做「看起来能用但没效果」
+/// 的假开关；分类筛选是真能用的（`FeedItem.category` 由后端下发）。
+/// 等后端补上 audience 字段，把 `matches` 里的两行去掉置灰即可。
 struct FeedFilter: Hashable {
     var onlyMyCollege = false
-    var degree: String?                 // nil 为全部学段，否则如「本科生」
+    var degree: String?                 // nil 为全部学段
     var categories: Set<FeedCategory> = []
+
+    /// 后端尚未下发受众字段，暂时置灰。
+    static let supportsAudienceFilter = false
 
     var isActive: Bool { onlyMyCollege || degree != nil || !categories.isEmpty }
 
     func matches(_ item: FeedItem, profile: UserProfile) -> Bool {
-        // 线上接口不下发 campus 受众字段：受众未知（空数组）时视为中性不剔除，
-        // 只有明确知道受众且不匹配时才过滤（Mock 数据行为不变）。
-        if onlyMyCollege, !item.audience.colleges.isEmpty, !item.audience.colleges.contains(profile.college) { return false }
-        if let degree, !item.audience.identities.isEmpty, !item.audience.identities.contains(degree) { return false }
+        if Self.supportsAudienceFilter {
+            if onlyMyCollege, !item.audience.colleges.isEmpty, !item.audience.colleges.contains(profile.college) { return false }
+            if let degree, !item.audience.identities.isEmpty, !item.audience.identities.contains(degree) { return false }
+        }
         if !categories.isEmpty, !categories.contains(item.category) { return false }
         return true
     }

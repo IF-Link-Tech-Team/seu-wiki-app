@@ -10,7 +10,9 @@ struct SEUWikiApp: App {
 
     init() {
         #if DEBUG
-        ProfileStorage.runPersistenceSelfTest()
+        // 启动即跑一遍关键纯逻辑自检（日期解析 / 分页去重 / 绩点 / 对比度 / 持久化）。
+        // 这两端此前都是零测试，而这些正是历次事故高发区。
+        SelfCheck.runAll()
         #endif
     }
 

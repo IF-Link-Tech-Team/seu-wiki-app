@@ -102,10 +102,8 @@ final class FeedStore {
             let (items, nextCursor) = try await fetch(scope: scope, profile: profile, cursor: cursor)
             // 刷新与翻页并发时，刷新已经重置了列表：这次的结果直接作废。
             guard generations[scope] == generation else { return }
-            // 按 id 去重：for-you 的排序会随内容热度漂移，跨页出现重复 id 是现实场景。
-            // 不去重的话 ForEach 行为未定义（Android 上会直接崩）。
-            var seen = Set(pages[scope]?.items.map(\.id) ?? [])
-            pages[scope]?.items.append(contentsOf: items.filter { seen.insert($0.id).inserted })
+            // 按 id 去重（实现见 `Paging.merge`，被 `SelfCheck` 覆盖）。
+            pages[scope]?.items = Paging.merge(existing: pages[scope]?.items ?? [], incoming: items)
             pages[scope]?.nextCursor = nextCursor
         } catch {
             // 翻页失败静默：列表还有内容，不必打断用户；滚到底会自然重试。
@@ -140,8 +138,7 @@ final class FeedStore {
     }
 
     private static func distinct(_ items: [FeedItem]) -> [FeedItem] {
-        var seen = Set<String>()
-        return items.filter { seen.insert($0.id).inserted }
+        Paging.distinct(items)
     }
 
     private static func isCancellation(_ error: Error) -> Bool {

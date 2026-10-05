@@ -27,4 +27,22 @@ struct Course: Identifiable, Codable, Hashable {
         }
         return "\(fmt(startTime))–\(fmt(endTime))"
     }
+
+    /// 逐字段容错解码。
+    ///
+    /// 用编译器合成的 `Decodable` 时，**任何一个**新增的非可选字段缺失都会让整条记录
+    /// 解码失败；配合 `ProfileStorage` 的默认值回退，用户的整学期课表会在一次模型
+    /// 改动后静默清空。这里让每个字段都独立降级：加字段不会影响老数据。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) as? String ?? ""
+        teacher = (try? c.decodeIfPresent(String.self, forKey: .teacher)) as? String ?? ""
+        location = (try? c.decodeIfPresent(String.self, forKey: .location)) as? String ?? ""
+        weekday = (try? c.decodeIfPresent(Int.self, forKey: .weekday)) as? Int ?? 1
+        startTime = (try? c.decodeIfPresent(DateComponents.self, forKey: .startTime)) as? DateComponents
+            ?? DateComponents(hour: 8, minute: 0)
+        endTime = (try? c.decodeIfPresent(DateComponents.self, forKey: .endTime)) as? DateComponents
+            ?? DateComponents(hour: 9, minute: 40)
+    }
 }

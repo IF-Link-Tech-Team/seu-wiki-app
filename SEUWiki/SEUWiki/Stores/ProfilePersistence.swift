@@ -40,18 +40,43 @@ enum ProfileStorage {
     static func save(_ value: some Encodable, for key: Key, defaults: UserDefaults = .standard) {
         guard let data = try? encoder.encode(value) else { return }
         defaults.set(data, forKey: key.rawValue)
+        defaults.set(schemaVersion, forKey: versionKey(for: key))
     }
 
+    /// 读回。解码失败时**先把原始 Data 挪到备份 key**再返回 nil。
+    ///
+    /// 早期版本直接 `try?` 返回 nil，调用方随即用默认值覆盖写回 —— 模型一改
+    /// （加了个非可选字段、换了枚举 rawValue），用户的提醒和课表就**无声消失**，
+    /// 而且没有任何可恢复的痕迹。留一份 `.corrupt` 备份，至少还能捞回来。
     static func load<T: Decodable>(_ type: T.Type, for key: Key, defaults: UserDefaults = .standard) -> T? {
         guard let data = defaults.data(forKey: key.rawValue) else { return nil }
-        return try? decoder.decode(type, from: data)
+        if let value = try? decoder.decode(type, from: data) { return value }
+
+        if defaults.data(forKey: corruptKey(for: key)) == nil {
+            defaults.set(data, forKey: corruptKey(for: key))
+            NSLog("[ProfileStorage] %@ 解码失败，原始数据已备份到 %@", key.rawValue, corruptKey(for: key))
+        }
+        return nil
     }
 
-    /// 清空所有 profile 相关 key（含初始化标记）。
+    /// 落盘格式版本。模型语义变化时 +1。
+    /// v1 = 裸 JSON；v2 = 记录版本号，便于将来按版本做迁移而不是直接丢弃。
+    static let schemaVersion = 2
+    private static func versionKey(for key: Key) -> String { "\(key.rawValue).schemaVersion" }
+    private static func corruptKey(for key: Key) -> String { "\(key.rawValue).corruptBackup" }
+
+    /// 当前记录的版本号（没有则视为 v1）。
+    static func storedVersion(for key: Key, defaults: UserDefaults = .standard) -> Int {
+        defaults.object(forKey: versionKey(for: key)) as? Int ?? 1
+    }
+
+    /// 清空所有 profile 相关 key（含初始化标记、版本号与损坏备份）。
     static func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: initializedKey)
         for key in Key.allCases {
             defaults.removeObject(forKey: key.rawValue)
+            defaults.removeObject(forKey: versionKey(for: key))
+            defaults.removeObject(forKey: corruptKey(for: key))
         }
     }
 

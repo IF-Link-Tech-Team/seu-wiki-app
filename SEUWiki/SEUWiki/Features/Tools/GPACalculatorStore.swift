@@ -9,14 +9,21 @@ struct GPACourse: Identifiable, Hashable, Codable {
     var scoreText = ""
 
     /// 解析后的学分，大于 0 才有效。
+    ///
+    /// ⚠️ 必须查 `isFinite`：`Double("inf")` 在 Swift 里**解析成功**并返回 `inf`
+    /// （不是 nil），`Double("nan")` 同理。只判 `> 0` 的话 `inf` 会被当成合法学分，
+    /// 汇总出的加权平均直接变成 NaN，页面上显示成一个毫无意义的数字。
+    /// 这是自检（`SelfCheck`）实测抓出来的，不是理论问题。
     var credits: Double? {
-        guard let value = Double(creditsText.trimmingCharacters(in: .whitespaces)), value > 0 else { return nil }
+        let text = creditsText.trimmingCharacters(in: .whitespaces)
+        guard let value = Double(text), value.isFinite, value > 0 else { return nil }
         return value
     }
 
-    /// 解析后的百分制成绩，0–100 才有效。
+    /// 解析后的百分制成绩，0–100 才有效。同样需要 `isFinite`。
     var score: Double? {
-        guard let value = Double(scoreText.trimmingCharacters(in: .whitespaces)), (0...100).contains(value) else { return nil }
+        let text = scoreText.trimmingCharacters(in: .whitespaces)
+        guard let value = Double(text), value.isFinite, (0...100).contains(value) else { return nil }
         return value
     }
 
@@ -28,13 +35,13 @@ struct GPACourse: Identifiable, Hashable, Codable {
     /// 输入了可解析但越界的成绩（如 108），用于行内报错。
     var hasScoreError: Bool {
         guard !scoreText.isEmpty, let value = Double(scoreText.trimmingCharacters(in: .whitespaces)) else { return false }
-        return !(0...100).contains(value)
+        return !value.isFinite || !(0...100).contains(value)
     }
 
     /// 输入了可解析但不合法的学分（如 0 或负数），用于行内报错。
     var hasCreditsError: Bool {
         guard !creditsText.isEmpty, let value = Double(creditsText.trimmingCharacters(in: .whitespaces)) else { return false }
-        return value <= 0
+        return !value.isFinite || value <= 0
     }
 }
 
