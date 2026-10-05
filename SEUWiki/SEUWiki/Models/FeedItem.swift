@@ -59,5 +59,29 @@ struct FeedItem: Identifiable, Codable, Hashable {
     var score: Int             // 0–100 精选分
     var isSelected: Bool       // 是否精选
     var audience: CampusAudience
-    var matchReasons: [String] = []  // for-you 命中理由（如「你的学院」）
+    var matchReasons: [String] = []  // for-you 命中理由（如「你的学院」)
+
+    /// 只知道 id 时的占位条目。
+    ///
+    /// 通知深链冷启动进来时，任何分页都还没加载，这条资讯的标题、来源、分类
+    /// 一个都拿不到。先用空壳把详情页顶上去，由 `FeedItemDetailView` 调
+    /// `/api/site/items/:id` 把真实内容拉回来。
+    ///
+    /// ⚠️ **不要在这里编造标题或摘要。** 空着，界面会如实显示「没有内容」，
+    /// 这比凭空捏一条像模像样的假通知好 —— 用户分不清哪个是真的。
+    static func placeholder(id: String) -> FeedItem {
+        FeedItem(
+            id: id,
+            title: "",
+            summary: "",
+            sourceName: "",
+            category: .news,
+            tags: [],
+            publishedAt: .now,
+            originalURL: nil,
+            score: 0,
+            isSelected: false,
+            audience: CampusAudience()
+        )
+    }
 }

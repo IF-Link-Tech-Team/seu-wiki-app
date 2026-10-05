@@ -19,22 +19,44 @@ struct FeedItemDetailView: View {
         detail?.originalURL ?? item.originalURL
     }
 
+    /// 通知深链冷启动进来时 [FeedItem.placeholder] 的标题是空的，
+    /// 这时用详情接口下发的原文标题顶上，而不是留一个空标题页。
+    private var displayTitle: String {
+        item.title.isEmpty ? (detail?.originalTitle ?? "") : item.title
+    }
+
+    /// 占位条目没有来源与发布时间，别渲染出「··」这种空行。
+    private var showsMetaRow: Bool {
+        !item.sourceName.isEmpty
+    }
+
+    /// 只有 id 的占位条目（通知深链冷启动）。它的 `category` 是占位值 `.news`，
+    /// 拿「校园新闻」当标签展示等于凭空断言这条资讯的分类。
+    private var isDeepLinkPlaceholder: Bool {
+        item.title.isEmpty && item.sourceName.isEmpty
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) {
-                    categoryChip
-                    Text(item.sourceName)
-                    Text("·")
-                    Text(item.publishedAt.formatted(date: .abbreviated, time: .shortened))
+                if showsMetaRow {
+                    HStack(spacing: 8) {
+                        categoryChip
+                        Text(item.sourceName)
+                        Text("·")
+                        Text(item.publishedAt.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
 
-                Text(item.title)
+                Text(displayTitle)
                     .font(.title2.weight(.bold))
 
-                if let originalTitle = detail?.originalTitle, originalTitle != item.title {
+                // 占位条目没有自己的标题，也就无所谓「原文标题」了 —— 别重复显示。
+                if let originalTitle = detail?.originalTitle,
+                   !item.title.isEmpty,
+                   originalTitle != item.title {
                     Text("原文标题：\(originalTitle)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -79,7 +101,9 @@ struct FeedItemDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .groupedBackground()
-        .navigationTitle(item.category.name)
+        // 占位条目的 category 是占位值 `.news`，拿它当导航标题等于凭空断言
+        // 「这条属于校园新闻」。这种情况下用中性的栏目名。
+        .navigationTitle(isDeepLinkPlaceholder ? "资讯" : item.category.name)
         .navigationBarTitleDisplayMode(.inline)
         // iOS 26 起 `.safeAreaBar` 才是正确的底部条写法：系统自动处理材质、圆角与
         // 和 tab 栏的层级关系。早期的 `.safeAreaInset` + `.background(.bar)` 是手绘伪材质，

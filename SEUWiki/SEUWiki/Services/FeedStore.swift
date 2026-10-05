@@ -39,6 +39,18 @@ final class FeedStore {
         pages[scope] ?? PageState()
     }
 
+    /// 按 id 在**已加载**的分页里找一条资讯。
+    ///
+    /// 通知深链进来时 App 可能刚冷启动，任何 scope 都还没加载过，这时返回 nil，
+    /// 调用方退化成 [FeedItem.placeholder(id:)]，由详情页去拉真实内容。
+    /// 找不到不是错误 —— 所以这里不去碰网络。
+    func findItem(id: String) -> FeedItem? {
+        for page in pages.values {
+            if let hit = page.items.first(where: { $0.id == id }) { return hit }
+        }
+        return nil
+    }
+
     /// 首次进入某个 scope 时加载；已加载过的 scope 直接复用。
     func loadIfNeeded(scope: FeedScope, profile: UserProfile) async {
         guard !page(for: scope).hasLoaded else { return }

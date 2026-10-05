@@ -19,8 +19,29 @@ final class ReminderScheduler {
 
     private init() {}
 
+    /// 装上 [NotificationCenterDelegate]。**必须在 `didFinishLaunchingWithOptions`
+    /// 里调用**（见 `SEUWikiApp` 的 `AppDelegate`）：冷启动点通知的回调早于
+    /// SwiftUI 的 `App.init()`，那时还没装就丢了。重复调用幂等。
+    func install() {
+        center.delegate = NotificationCenterDelegate.shared
+    }
+
     var isGloballyEnabled: Bool {
         UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
+    }
+
+    /// 通知携带的 `userInfo`。
+    ///
+    /// 抽成纯函数是为了能进 [SelfCheck]：key 写错（比如手滑写成 `feedId`）不会
+    /// 编译报错，只会让点通知静默地什么都不做 —— 这类错误必须由自检挡住。
+    /// 没有关联资讯时**不要**塞空串：delegate 侧 `!itemID.isEmpty` 会挡掉，
+    /// 但留着空 key 会让排查时分不清「没有关联」和「关联丢了」。
+    nonisolated static func userInfo(id: String, relatedItemID: String?) -> [String: Any] {
+        var info: [String: Any] = ["reminderID": id]
+        if let relatedItemID, !relatedItemID.isEmpty {
+            info[NotificationCenterDelegate.feedItemIDKey] = relatedItemID
+        }
+        return info
     }
 
     // MARK: - 授权
@@ -42,19 +63,44 @@ final class ReminderScheduler {
 
     // MARK: - 排程
 
+    /// 提醒的**实际触发时刻**：截止日往前推 N 天的当天 09:00。
+    ///
+    /// 抽成纯函数是为了能进 [SelfCheck]。这里有两处容易错的地方：
+    ///
+    /// 1. **不要用「减 86400 秒」** 往前推天数。夏令时切换那天一天不是 24 小时，
+    ///    减出来的时刻会差一小时，提醒就早/晚一小时。用
+    ///    `Calendar.date(byAdding: .day:)` 让日历自己处理。
+    /// 2. 提醒时间取 **09:00** 而不是截止时刻本身 —— 学生不会想被凌晨的提醒炸醒。
+    ///
+    /// - Returns: 触发时刻；截止日往前推 N 天后当天 09:00 构不出来时返回 nil。
+    nonisolated static func fireDate(
+        deadline: Date,
+        advanceDays: Int,
+        calendar: Calendar = .current
+    ) -> Date? {
+        // N ≥ 0；N 为 0 表示截止当天提醒。负数当成 0，别往截止日**之后**排。
+        let day = calendar.date(byAdding: .day, value: -max(0, advanceDays), to: deadline) ?? deadline
+        var components = calendar.dateComponents([.year, .month, .day], from: day)
+        components.hour = 9
+        components.minute = 0
+        return calendar.date(from: components)
+    }
+
     /// 为一条提醒排程通知。同一条提醒重复设定时先撤掉旧的，避免叠加多次提醒。
-    func schedule(id: String, title: String, deadline: Date, advanceDays: Int) async {
+    func schedule(
+        id: String,
+        title: String,
+        deadline: Date,
+        advanceDays: Int,
+        relatedItemID: String? = nil
+    ) async {
         guard isGloballyEnabled else { return }
         guard await requestAuthorization() else { return }
 
         let calendar = Calendar.current
-        // 提醒日 = 截止日往前推 N 天；N ≥ 0。N 为 0 表示截止当天提醒。
-        let fireDate = calendar.date(byAdding: .day, value: -max(0, advanceDays), to: deadline) ?? deadline
-        // 提醒时间取当天的 9:00 —— 学生不会想被凌晨的提醒炸醒。
-        var components = calendar.dateComponents([.year, .month, .day], from: fireDate)
-        components.hour = 9
-        components.minute = 0
-        guard let scheduled = calendar.date(from: components) else { return }
+        guard let scheduled = Self.fireDate(deadline: deadline, advanceDays: advanceDays, calendar: calendar) else { return }
+        // UNCalendarNotificationTrigger 要的是「日历分量」而不是绝对时刻。
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: scheduled)
 
         // 已经过去的时间点排程没有意义（系统会直接忽略），不排。
         guard scheduled > .now else {
@@ -66,8 +112,8 @@ final class ReminderScheduler {
         content.title = "SEU.wiki 提醒"
         content.body = title
         content.sound = .default
-        // 点通知直接进 App；不指定的话只会弹个横幅。
-        content.userInfo = ["reminderID": id]
+        // 点通知直接进 App 对应那条资讯；不指定的话只会弹个横幅然后停在主页。
+        content.userInfo = Self.userInfo(id: id, relatedItemID: relatedItemID)
 
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
@@ -76,9 +122,17 @@ final class ReminderScheduler {
         center.removePendingNotificationRequests(withIdentifiers: [id])
         do {
             try await center.add(request)
+            NSLog("[ReminderScheduler] 已排程「%@」，%@ 触发", title, Self.describe(scheduled))
         } catch {
             NSLog("[ReminderScheduler] 排程失败：%d", (error as NSError).code)
         }
+    }
+
+    private static func describe(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm ZZZZZ"
+        return formatter.string(from: date)
     }
 
     func cancel(id: String) {
@@ -98,7 +152,7 @@ final class ReminderScheduler {
     ///
     /// 必要场景：App 被系统清理待处理通知、或用户手动在系统设置里清过通知。
     /// 没有这一步，界面显示「有提醒」但系统里其实一条都没排。
-    func reconcile(reminders: [(id: String, title: String, deadline: Date, advanceDays: Int)]) async {
+    func reconcile(reminders: [(id: String, title: String, deadline: Date, advanceDays: Int, relatedItemID: String?)]) async {
         guard isGloballyEnabled else { return }
         guard await authorizationStatus() == .authorized else { return }
 
@@ -111,7 +165,8 @@ final class ReminderScheduler {
                 id: reminder.id,
                 title: reminder.title,
                 deadline: reminder.deadline,
-                advanceDays: reminder.advanceDays
+                advanceDays: reminder.advanceDays,
+                relatedItemID: reminder.relatedItemID
             )
         }
         // 系统有、界面没有 → 撤掉（用户删了但系统还留着）。

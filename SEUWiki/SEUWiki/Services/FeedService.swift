@@ -7,7 +7,7 @@ import UIKit
 /// **不带任何鉴权头。** `/api/site` 这一组接口后端**明确不读** `Authorization`
 /// （见 `apps/api/src/lib/server.ts` 的挂载与 `apps/api/src/routes/site.ts` 全部 GET），
 /// 所以挂 token 有两个纯粹的坏处：白白扩大凭证暴露面，且每刷一次 feed 都会把
-/// 续期链路（并发合并、错误分类）拽进来，凭空多出一堆能把自己登出���的路径。
+/// 续期链路（并发合并、错误分类）拽进来，凭空多出一堆能把自己登出局的路径。
 /// 个性化**不依赖登录** —— for-you 的画像参数直接来自本地 `UserProfile`。
 /// 等 forum 接通、那边真的要 Bearer 时，再单独给 forum 客户端挂 token 并加 host 白名单。
 ///

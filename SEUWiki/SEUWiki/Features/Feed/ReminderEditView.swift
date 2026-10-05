@@ -97,7 +97,8 @@ struct ReminderEditView: View {
             }
             await ReminderScheduler.shared.schedule(
                 id: existing.notificationID, title: trimmed,
-                deadline: dueDate, advanceDays: advanceDays
+                deadline: dueDate, advanceDays: advanceDays,
+                relatedItemID: existing.relatedItemID
             )
         } else {
             let reminder = CampusReminder(
@@ -110,7 +111,8 @@ struct ReminderEditView: View {
             profile.reminders.append(reminder)
             await ReminderScheduler.shared.schedule(
                 id: reminder.notificationID, title: trimmed,
-                deadline: dueDate, advanceDays: advanceDays
+                deadline: dueDate, advanceDays: advanceDays,
+                relatedItemID: reminder.relatedItemID
             )
         }
         saved.toggle()

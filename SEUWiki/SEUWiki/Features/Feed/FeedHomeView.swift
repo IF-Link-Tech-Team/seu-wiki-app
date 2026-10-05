@@ -62,9 +62,14 @@ struct FeedHomeView: View {
     @State private var scope: FeedScope = .forYou
     @State private var filter = FeedFilter()
     @State private var showsFilter = false
+    /// 点提醒通知要打开的资讯 id，由 `RootTabView` 投递、消费后清空。
+    var pendingItemID: Binding<String?> = .constant(nil)
+    /// 显式路径而不是纯 `NavigationLink`：通知深链要**由代码**推进，
+    /// 没有可供用户点的链接。
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             // ConsoleBar 用 `.safeAreaBar(edge: .top)` 固定在导航栏下方。
             // 放在 ScrollView 的 VStack 里会随内容一起滚走 —— 资讯有 10 个 scope，
             // 用户往下翻一屏就找不到 scope 切换器了，得滚回顶部才行。
@@ -116,6 +121,17 @@ struct FeedHomeView: View {
             }
             .task(id: scope) {
                 await store.loadIfNeeded(scope: scope, profile: profile)
+            }
+            // `initial: true` 是必需的：冷启动点通知时，`RootTabView` 在本视图
+            // **第一次求值之前**就把 id 投递过来了（它要先切 tab，本视图才被创建）。
+            // 只挂 `onChange` 会永远等不到「变化」——实测就是停在列表页、推不进详情。
+            .onChange(of: pendingItemID.wrappedValue, initial: true) { _, newValue in
+                guard let newValue, !newValue.isEmpty else { return }
+                // 已加载的分页里找得到就用完整条目（标题、来源、分类都有）；
+                // 冷启动时任何 scope 都还没加载，退化成只有 id 的占位，
+                // 由 `FeedItemDetailView` 拉真实标题和正文顶上。**不编造内容。**
+                path.append(store.findItem(id: newValue) ?? .placeholder(id: newValue))
+                pendingItemID.wrappedValue = nil
             }
         }
     }

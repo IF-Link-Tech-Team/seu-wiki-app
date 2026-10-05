@@ -39,6 +39,8 @@ enum SelfCheck {
         checkProfileFingerprint()
         checkContrast()
         checkReminderBadge()
+        checkReminderNotification()
+        checkReminderFireDate()
         checkPersistence()
         let snapshot = results
         let failed = snapshot.filter { !$0.passed }
@@ -263,6 +265,88 @@ enum SelfCheck {
         let next = profile.nextPendingReminder
         expect("提醒/主页取最近未过期", next?.dueDate == reminder(days: 2).dueDate)
         expect("提醒/过期条数正确", profile.expiredReminders.count == 1)
+    }
+
+    // MARK: - 通知深链
+
+    /// 提醒通知的 `userInfo` 与占位条目。
+    ///
+    /// 这条链路上出错的代价全是**静默**的：key 拼错 → 点了通知什么都不发生；
+    /// 占位条目编了标题 → 通知深链进来显示一条内容对不上的假资讯。
+    /// 两者编译期都查不出来，只能靠自检。
+    private static func checkReminderNotification() {
+        let key = NotificationCenterDelegate.feedItemIDKey
+
+        // 有关联资讯时必须带上，且值要原样对上。
+        let linked = ReminderScheduler.userInfo(id: "seuwiki-reminder-ABC", relatedItemID: "item-42")
+        expect("通知/userInfo 带关联资讯 id", (linked[key] as? String) == "item-42", "实际 \(linked)")
+        expect("通知/userInfo 保留 reminder id", (linked["reminderID"] as? String) == "seuwiki-reminder-ABC")
+
+        // 没有关联资讯时不要塞空串 —— 排查时要能区分「本来就没有」和「关联丢了」。
+        let unlinked = ReminderScheduler.userInfo(id: "seuwiki-reminder-XYZ", relatedItemID: nil)
+        expect("通知/无关联时不塞空 key", unlinked[key] == nil, "实际 \(unlinked)")
+        expect("通知/空串关联视为无关联",
+               ReminderScheduler.userInfo(id: "r", relatedItemID: "")[key] == nil)
+
+        // 空 id / 全空白 id 都必须被挡掉：空 id 会让详情页拿空串去请求接口。
+        expect("通知/空白 id 不放行",
+               NotificationCenterDelegate.feedItemID(from: [key: "   "]) == nil)
+        expect("通知/缺失 id 不放行",
+               NotificationCenterDelegate.feedItemID(from: ["reminderID": "r"]) == nil)
+        expect("通知/带空白 id 正常解析",
+               NotificationCenterDelegate.feedItemID(from: [key: " item-42 "]) == "item-42")
+
+        // 前台必须有横幅。返回 `[]` 或只有 `.badge` 正是本 bug 的成因，
+        // 没有任何编译期或运行期错误提示，只能靠自检锁住。
+        expect("通知/前台弹横幅",
+               NotificationCenterDelegate.foregroundPresentation.contains(.banner))
+        expect("通知/前台有声",
+               NotificationCenterDelegate.foregroundPresentation.contains(.sound))
+
+        // 占位条目：id 正确，且**不编造**任何用户可见内容。
+        let placeholder = FeedItem.placeholder(id: "item-42")
+        expect("通知/占位条目 id 正确", placeholder.id == "item-42")
+        expect("通知/占位条目不编造标题", placeholder.title.isEmpty)
+        expect("通知/占位条目不编造摘要", placeholder.summary.isEmpty)
+        expect("通知/占位条目不编造来源", placeholder.sourceName.isEmpty)
+    }
+
+    /// 提醒触发时刻的算法。
+    ///
+    /// 盯的是两件容易回归的事：提醒时间必须是 09:00（不是截止时刻本身），
+    /// 以及往前推天数必须走日历而不是减 86400 秒（夏令时那天会差一小时）。
+    private static func checkReminderFireDate() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        func parts(_ date: Date) -> (Int, Int, Int, Int, Int) {
+            let c = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+            return (c.year!, c.month!, c.day!, c.hour!, c.minute!)
+        }
+
+        // 2026-10-20 14:30 截止，提前 3 天 → 2026-10-17 09:00。
+        let deadline = calendar.date(from: DateComponents(year: 2026, month: 10, day: 20, hour: 14, minute: 30))!
+        let three = ReminderScheduler.fireDate(deadline: deadline, advanceDays: 3, calendar: calendar)!
+        expect("提醒时刻/提前 3 天", parts(three) == (2026, 10, 17, 9, 0), "实际 \(parts(three))")
+
+        // 提前 0 天 = 截止当天 09:00，而不是截止时刻 14:30。
+        let sameDay = ReminderScheduler.fireDate(deadline: deadline, advanceDays: 0, calendar: calendar)!
+        expect("提醒时刻/当天 9 点而非截止时刻", parts(sameDay) == (2026, 10, 20, 9, 0), "实际 \(parts(sameDay))")
+
+        // 负数提前量当成 0，绝不往截止日之后排。
+        let negative = ReminderScheduler.fireDate(deadline: deadline, advanceDays: -5, calendar: calendar)!
+        expect("提醒时刻/负提前量夹到 0", parts(negative) == (2026, 10, 20, 9, 0), "实际 \(parts(negative))")
+
+        // 夏令时回归：America/New_York 2026-11-01 夏令时结束（凌晨回拨一小时）。
+        // 截止 2026-11-01 09:00，提前 1 天必须是 2026-10-31 **09:00**；
+        // 「减 86400 秒」会算成 08:00，提醒就早一小时。
+        var ny = Calendar(identifier: .gregorian)
+        ny.timeZone = TimeZone(identifier: "America/New_York")!
+        let dstDeadline = ny.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 9))!
+        let dstFire = ReminderScheduler.fireDate(deadline: dstDeadline, advanceDays: 1, calendar: ny)!
+        let nyParts = ny.dateComponents([.year, .month, .day, .hour], from: dstFire)
+        expect("提醒时刻/跨夏令时仍是 9 点",
+               nyParts.year == 2026 && nyParts.month == 10 && nyParts.day == 31 && nyParts.hour == 9,
+               "实际 \(nyParts)")
     }
 
     // MARK: - 持久化
