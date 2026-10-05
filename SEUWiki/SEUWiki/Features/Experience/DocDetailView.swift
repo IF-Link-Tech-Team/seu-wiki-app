@@ -69,7 +69,9 @@ struct DocDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(detail?.title ?? "加载中")
+            // 失败时不要停在"加载中"：详情没拿到时用 slug 末段兜底，
+            // 否则导航栏标题会永远显示"加载中"，和下面的"加载失败"自相矛盾。
+            Text(detail?.title ?? Self.fallbackTitle(slug: slug))
                 .font(.title2.weight(.bold))
 
             if let description = detail?.description, !description.isEmpty {
@@ -91,8 +93,13 @@ struct DocDetailView: View {
         }
     }
 
-    private var metaChips: [String] {
-        guard let detail else { return [] }
+    /// slug 兜底标题：取最后一段（`survival/观点篇/1-认识` → `1-认识`）。
+    /// 只用于详情还没加载出来时占位，**不是**编造内容——它就是后端 slug 的字面末段。
+    private static func fallbackTitle(slug: String) -> String {
+        slug.split(separator: "/").last.map(String.init) ?? slug
+    }
+
+    private var metaChips: [String] {        guard let detail else { return [] }
         var chips: [String] = []
         if let author = detail.author, !author.isEmpty { chips.append(author) }
         if let occurred = detail.occurredAt, !occurred.isEmpty { chips.append(occurred) }
@@ -113,7 +120,10 @@ struct DocDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(detail?.outline ?? []) { entry in
                     OutlineRow(entry: entry, isCurrent: entry.id == currentOutlineID)
-                        .onTapGesture { onSelect(entry.id) }
+                        .contentShape(.rect)
+                        // 后端没给 `id` 的标题无从定位，此时不可点——点了只会跳不到任何地方，
+                        // 表现得像坏了。
+                        .onTapGesture { guard !entry.id.isEmpty else { return }; onSelect(entry.id) }
                 }
             }
         }

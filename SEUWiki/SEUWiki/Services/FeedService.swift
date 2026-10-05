@@ -129,7 +129,9 @@ struct FeedAPIClient: Sendable {
             grade: dto.grade,
             college: dto.college,
             html: dto.html,
-            outline: dto.outline.map { DocDetail.Outline(id: $0.id, text: $0.text, level: $0.level) }
+            outline: dto.headings.map {
+                DocDetail.Outline(id: $0.id ?? "", text: $0.text, level: $0.depth ?? 2)
+            }
         )
     }
 
@@ -159,7 +161,12 @@ struct FeedAPIClient: Sendable {
 
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
-        components?.path = path
+        // ⚠️ **必须用 `percentEncodedPath`，不能用 `path`**。
+        // `path` 的赋值器期望的是**未解码**的路径，它会自己再做一次百分号编码；
+        // 而 `path` 里的 slug 已经由 `percentEncodedPath` 编码过了，于是 `%` 被转义成
+        // `%25`，实际请求变成 `survival/%25E8%25A7%2582...` —— 后端按字面量查表必然 404。
+        // （`percentEncodedPath` 同样不能喂原始中文，实测两种都返回 200，错的只有这一个。）
+        components?.percentEncodedPath = path
         components?.queryItems = query.isEmpty ? nil : query
         guard let url = components?.url else { throw FeedAPIError.badURL }
         var request = URLRequest(url: url)
@@ -172,8 +179,16 @@ struct FeedAPIClient: Sendable {
             return try Self.decoder.decode(T.self, from: data)
         } catch {
             // 解码失败时把前 200 字节带上：排查线上字段变动时省去反复抓包。
+            //
+            // ⚠️ **绝不要用 `NSLog("[..] %@", String(describing: T.self), ..)`**：
+            // 泛型元类型在这种上下文里是 deiniting 的临时对象，`NSLog` 走 `%@` 去
+            // 描述它时直接在 `objc_opt_respondsToSelector` 段错误（EXC_BAD_ACCESS @ 0x1301）。
+            // 更糟的是这条日志**只在解码失败时才执行**——正常路径永不崩，一到线上字段
+            // 变动、最需要看日志的时候，App 必崩。改用 `print` 字符串插值，实测不崩。
             let head = String(data: data.prefix(200), encoding: .utf8) ?? ""
-            NSLog("[FeedAPIClient] 解码 %@ 失败：%@ / %@", String(describing: T.self), (error as NSError).code, head)
+            let info = error as NSError
+            print("[FeedAPIClient] 解码 \(T.self) 失败：code=\(info.code) "
+                  + "domain=\(info.domain) head=\(head)")
             throw error
         }
     }
@@ -552,13 +567,8 @@ private struct ExperienceIndexDTO: Decodable {
     let items: [DocItemDTO]
 }
 
-private struct DocDetailDTO: Decodable {
-    struct OutlineDTO: Decodable {
-        let id: String
-        let text: String
-        let level: Int
-    }
-    let slug: String
+/// 非 private：SelfCheck 拿真实响应做解码断言，防止字段名再写错（错名不报错，只静默变空）。
+struct DocDetailDTO: Decodable {    let slug: String
     let kind: String
     let title: String
     let description: String?
@@ -568,7 +578,19 @@ private struct DocDetailDTO: Decodable {
     let grade: String?
     let college: String?
     let html: String?
-    let outline: [OutlineDTO]
+    /// ⚠️ 后端字段名是 **`headings`**、层级字段是 **`depth`**，不是 `outline`/`level`
+    /// （curl 实测 `/api/site/docs/survival/观点篇/1-认识` 的键里没有 `outline`）。
+    /// 写错名字不会报错——JSONDecoder 缺字段只是解成 nil——**表现是目录永远为空**，
+    /// 一开始就是这么静默坏的。
+    let headings: [HeadingDTO]
+}
+
+struct HeadingDTO: Decodable {
+    /// 后端不一定给每条标题都带 `id`（没带就无法点击定位），缺失时回落成空串，
+    /// 目录仍可显示，只是不可跳转——好过整页解码失败。
+    let id: String?
+    let text: String
+    let depth: Int?
 }
 
 private extension SurvivalIndexDTO {

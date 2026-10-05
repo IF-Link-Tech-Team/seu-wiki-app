@@ -30,6 +30,7 @@ enum SelfCheck {
         checkGPA()
         checkPaginationDedup()
         checkSlugEncoding()
+        checkDocDetailContract()
         checkProfileFingerprint()
         checkContrast()
         checkReminderBadge()
@@ -141,6 +142,62 @@ enum SelfCheck {
         expect("slug/斜杠保留", encoded.contains("/"), "实际 \(encoded)")
         expect("slug/中文已编码", !encoded.contains("观"), "实际 \(encoded)")
         expect("slug/无空格等保留字符", !encoded.contains(" "))
+        checkURLAssembly(encoded: encoded)
+    }
+
+    /// 防回归：曾经用 `URLComponents.path` 拼已编码的 slug，`%` 被二次转义成
+    /// `%25`，**每一个**中文文档详情都 404，而且只在真机/模拟器点进去才看得见。
+    /// 这里断言最终 URL 恰好编码一次。
+    private static func checkURLAssembly(encoded: String) {
+        let path = "/api/site/docs/\(encoded)"
+        guard let base = URL(string: "https://seu.wiki") else { return }
+
+        // 复现 FeedService.get 的正确写法。
+        var good = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        good.percentEncodedPath = path
+        // 对照：错误写法。
+        var bad = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        bad.path = path
+
+        let goodURL = good.url?.absoluteString ?? ""
+        let badURL = bad.url?.absoluteString ?? ""
+        expect("URL/中文恰好编码一次", goodURL.contains("%E8%A7%82"), "实际 \(goodURL)")
+        expect("URL/无 %25 双重编码", !goodURL.contains("%25"), "实际 \(goodURL)")
+        expect("URL/斜杠仍分段", goodURL.contains("/docs/survival/"), "实际 \(goodURL)")
+        // 把错误写法的形态也钉住：万一有人「修回去」，这条会先炸。
+        expect("URL/错误写法确实双重编码", badURL.contains("%25E8"), "实际 \(badURL)")
+    }
+
+    // MARK: - 后端字段契约
+
+    /// 防回归：`DocDetailDTO` 一度写成 `outline`/`level`，而后端真实字段是
+    /// **`headings`/`depth`**。字段名写错**不会抛错**——JSONDecoder 只是解成 nil，
+    /// 于是目录永远空白，还查不出原因。这里拿一段真实响应做解码断言。
+    private static func checkDocDetailContract() {
+        // 取自 `GET /api/site/docs/survival/观点篇/1-认识` 的真实响应（截取相关字段）。
+        let json = """
+        {
+          "slug": "survival/观点篇/1-认识",
+          "kind": "survival",
+          "title": "1 认识",
+          "html": "<h2 id=\\"11-大学的定义\\">1.1 大学的定义</h2><p>正文</p>",
+          "headings": [
+            { "id": "11-大学的定义", "text": "1.1 大学的定义", "depth": 2 },
+            { "text": "1.2 没有 `id` 的标题", "depth": 3 }
+          ]
+        }
+        """
+        guard let data = json.data(using: .utf8),
+              let dto = try? JSONDecoder().decode(DocDetailDTO.self, from: data)
+        else {
+            expect("契约/docDetail 可解码", false, "字段名与后端不匹配")
+            return
+        }
+        expect("契约/headings 非空", !dto.headings.isEmpty, "目录会是空的")
+        expect("契约/depth 已解析", dto.headings.first?.depth == 2, "实际 \(String(describing: dto.headings.first?.depth))")
+        expect("契约/id 已解析", dto.headings.first?.id == "11-大学的定义")
+        // 缺 `id` / `depth` 的条目不能把整页拖崩。
+        expect("契约/缺 id 仍能解码", dto.headings.count == 2, "实际 \(dto.headings.count)")
     }
 
     // MARK: - 画像指纹
