@@ -346,7 +346,7 @@ final class AuthStore {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             NSLog("[AuthStore] 吊销 refresh token 返回 HTTP %d", code)
         } catch {
-            NSLog("[AuthStore] 吊销 refresh token 失败：%@", (error as NSError).code)
+            NSLog("[AuthStore] 吊销 refresh token 失败：%d", (error as NSError).code)
         }
     }
 
@@ -623,7 +623,7 @@ final class AuthStore {
         do {
             try Keychain.write(data, tag: keychainTag)
         } catch {
-            NSLog("[AuthStore] Keychain 写入失败：%@", (error as NSError).code)
+            NSLog("[AuthStore] Keychain 写入失败：%d", (error as NSError).code)
         }
     }
 

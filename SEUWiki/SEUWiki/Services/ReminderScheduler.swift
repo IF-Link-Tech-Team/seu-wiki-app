@@ -31,7 +31,7 @@ final class ReminderScheduler {
         do {
             return try await center.requestAuthorization(options: [.alert, .sound, .badge])
         } catch {
-            NSLog("[ReminderScheduler] 请求通知授权失败：%@", (error as NSError).code)
+            NSLog("[ReminderScheduler] 请求通知授权失败：%d", (error as NSError).code)
             return false
         }
     }
@@ -77,7 +77,7 @@ final class ReminderScheduler {
         do {
             try await center.add(request)
         } catch {
-            NSLog("[ReminderScheduler] 排程失败：%@", (error as NSError).code)
+            NSLog("[ReminderScheduler] 排程失败：%d", (error as NSError).code)
         }
     }
 
