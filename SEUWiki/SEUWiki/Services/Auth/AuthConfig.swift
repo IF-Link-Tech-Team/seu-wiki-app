@@ -2,7 +2,11 @@ import Foundation
 
 /// Logto OIDC 单点配置：所有端点、客户端标识集中在此，改环境只动这一处。
 /// 服务端契约见 Reference/iflab-forum/docs/auth.md §2「Bearer access tokens (native app)」。
-enum AuthConfig {
+///
+/// 标 `nonisolated`：工程开了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`，
+/// 默认会把所有声明圈进主 actor。但这里全是不可变常量，吊销 token 等逻辑还要在
+/// 脱离主 actor 的上下文里读它们。
+nonisolated enum AuthConfig {
     /// Logto issuer（discovery 可用；端点路径固定如下，不依赖运行时发现）。
     static let issuer = URL(string: "https://auth.iflink.tech/oidc")!
 
@@ -42,6 +46,10 @@ enum AuthConfig {
     static var tokenEndpoint: URL { issuer.appending(path: "token") }
     static var userinfoEndpoint: URL { issuer.appending(path: "me") }
     static var endSessionEndpoint: URL { issuer.appending(path: "session/end") }
+
+    /// RFC 7009 令牌吊销端点。退出登录时用它作废 refresh token ——
+    /// 不吊销的话该 token 在服务端还有最长 14 天有效期，等于「登出了但没真登出」。
+    static var revocationEndpoint: URL { issuer.appending(path: "token/revocation") }
 
     /// clientID 仍为占位值时为 false：UI 据此禁用登录按钮并提示「登录服务配置中」。
     static var isConfigured: Bool {

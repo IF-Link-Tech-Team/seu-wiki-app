@@ -24,7 +24,7 @@ import SwiftUI
 /// - UserInfo 用 `Decodable` 解，`String?` 遇到 JSON null 会得到 nil，不会退化成
 ///   字面量 "null"（Android 侧曾踩过这个坑，见 Kotlin 版 `stringOrNull`）；
 /// - 要 refresh token 就必须补 `prompt=consent`，否则 Logto 按 OIDC Core §6 丢弃
-///   `offline_access`，详见 [offlineAccessGranted]。
+///   `offline_access`，详见 [buildAuthorizationRequest]。
 @MainActor
 @Observable
 final class AuthStore {
@@ -60,21 +60,15 @@ final class AuthStore {
         String(displayName.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
     }
 
-    /// 是否已经向 Logto 取得过「离线访问」授权（即拿到过 refresh token）。
+    /// 退出登录后置位：下次授权带上 `prompt=login`，强制 Logto 弹出账号选择。
     ///
-    /// OIDC Core §6 规定：请求里带 `offline_access` 时 `prompt` 必须同时带 `consent`，
-    /// 否则授权服务器**必须忽略** `offline_access`。Logto 严格执行这条 —— 早期只发了
-    /// `offline_access` 而漏了 `prompt=consent`，token 响应里就**没有 `refresh_token`**，
-    /// 而 `email` / `roles` 一切正常，极难察觉。后果是 access token 一小时后过期，
-    /// `accessToken()` 拿不到 refresh token 只能 `logout()`，表现为「用着用着被静默登出」。
-    ///
-    /// 首次登录补上 `prompt=consent`，Logto 会展示授权页并把 `offline_access` 记进该
-    /// 用户对本应用的 grant；之后按 OIDC Core 的「其他已满足条件」直接复用该 grant，
-    /// 不必每次登录都弹授权页。故此标志只置位、登出时也保留，
-    /// 仅在续期被拒（grant 可能已在服务端失效）时清掉，让下一次登录重新征求同意。
-    private var offlineAccessGranted: Bool {
-        get { defaults.bool(forKey: Self.keyOfflineGrant) }
-        set { defaults.set(newValue, forKey: Self.keyOfflineGrant) }
+    /// 为什么需要：Logto 的浏览器会话是 Cookie-only 的，native 端「登出」只是清本地。
+    /// 不吊销 refresh token、不强制重新选号的话，用户再点登录会被浏览器里还活着的
+    /// Cookie 静默送回**上一个账号** —— 表现为「怎么登出去又登回来了、还换不了号」。
+    /// 登出时先吊销（RFC 7009），这里再补一道账号选择的保险。
+    private var forceAccountPicker: Bool {
+        get { defaults.bool(forKey: Self.keyForceAccountPicker) }
+        set { defaults.set(newValue, forKey: Self.keyForceAccountPicker) }
     }
 
     /// `ASWebAuthenticationSession` 不会被系统持有，不留强引用就立刻释放、
@@ -83,12 +77,18 @@ final class AuthStore {
     /// 授权期间保存 PKCE 材料，回调时校验 state 并换 token。
     private var pending: PendingRequest?
 
+    /// 正在飞行的续期任务。**所有**调用方 await 同一个任务，避免同一个 refresh token
+    /// 被并发使用（Logto 开了 Rotate refresh token，第二个请求会拿到已作废的 token）。
+    private var refreshTask: Task<Session?, Never>?
+    /// 会话代号。登出或换号时自增，用来识别「续期还在路上，用户已经登出了」这种竞态。
+    private var sessionGeneration: Int = 0
+
     private let session0 = URLSession(configuration: .ephemeral)
     private let defaults = UserDefaults.standard
     private let keychainTag = "tech.iflink.seuwiki.auth"
 
     init() {
-        session = Self.readPersisted(defaults)
+        session = Self.readPersisted(defaults: defaults, keychainTag: keychainTag)
     }
 
     /// 应用级单例。
@@ -198,8 +198,6 @@ final class AuthStore {
 
         do {
             let token = try await exchangeCode(code: code, verifier: request.verifier)
-            // 拿到 refresh token 即说明 Logto 认可了 offline_access，之后不必再弹授权页。
-            if token.refreshToken != nil { offlineAccessGranted = true }
             let info = try await fetchUserInfo(accessToken: token.accessToken)
             let newSession = Session(
                 accessToken: token.accessToken,
@@ -212,6 +210,10 @@ final class AuthStore {
             )
             persist(newSession)
             session = newSession
+            forceAccountPicker = false
+            lastError = token.refreshToken == nil
+                ? "登录成功，但 Logto 未签发 refresh token，约一小时后会需要重新登录"
+                : nil
         } catch {
             lastError = "登录失败：\(Self.describe(error))"
         }
@@ -221,52 +223,131 @@ final class AuthStore {
 
     /// 取一个可用的 access token，必要时用 refresh token 换新的。
     ///
-    /// `FeedAPIClient` 每次请求前调它，登录态下就自动带上新鲜凭证；刷新失败说明
-    /// 会话已失效，清本地登录态并返回 nil（回到匿名请求）。
+    /// 资讯客户端当前**不消费**这个返回值（seu.wiki 的 `/api/site` 不校验鉴权，
+    /// 见 `FeedService` 的说明），保留它是为了 forum 接入后能直接复用。
+    ///
+    /// 续期失败时**不一律登出**：只有 Logto 明确判定 refresh token 失效
+    /// （400 `invalid_grant` / 401）才清会话；断网、超时、任务取消、服务端 5xx
+    /// 一律保留登录态，本次调用退回匿名。早期版本在这里无条件 `logout()`，
+    /// 叠加 `FeedHomeView` 切换 scope 时 `.task(id:)` 的取消行为，用户在切 tab
+    /// 或搜索框敲字的过程中会被静默登出。
     func accessToken() async -> String? {
         guard let current = session else { return nil }
         if current.expiresAt.timeIntervalSinceNow > Self.expirySkew {
             return current.accessToken
         }
         guard let refresh = current.refreshToken else {
-            logout()
+            // 没有 refresh token 说明 `offline_access` 从未获批，这个会话无法自愈。
+            invalidateLocalSession()
             return nil
         }
-        do {
-            let token = try await renewAccessToken(using: refresh)
-            // Logto 可能在刷新时轮换 refresh token，缺省则沿用旧的。
-            let renewed = Session(
-                accessToken: token.accessToken,
-                refreshToken: token.refreshToken ?? refresh,
-                expiresAt: Date().addingTimeInterval(token.expiresIn),
-                subject: current.subject,
-                displayName: current.displayName,
-                email: current.email,
-                avatarURL: current.avatarURL
-            )
-            persist(renewed)
-            session = renewed
-            return renewed.accessToken
-        } catch {
-            logout()
-            // grant 可能已在服务端失效（超过 14 天 TTL、密码重置、管理员清理授权）：
-            // 连同「已授权」标志一起清掉，下一次登录会重新弹授权页并取回 refresh token。
-            offlineAccessGranted = false
-            return nil
+        let renewed = await refreshOnce(refresh: refresh, base: current)
+        return renewed?.accessToken
+    }
+
+    /// 合并并发续期：已有在飞行的任务就复用它，而不是再拿同一个 refresh token 发一次。
+    ///
+    /// Logto 开了 Rotate refresh token —— 同一个 refresh token 并发使用，第一个成功
+    /// 就会让第二个手里的那份作废，第二个拿到 `invalid_grant`，进而把用户登出。
+    /// 这里让全 App 的调用方 await 同一个 `Task`，从根上消除并发。
+    private func refreshOnce(refresh: String, base: Session) async -> Session? {
+        if let existing = refreshTask { return await existing.value }
+
+        let generation = sessionGeneration
+        // 刻意用非结构化 `Task`：它**不继承调用方的取消**。`.task(id:)` 被取消时
+        // （切 scope、下拉刷新重来）续期仍会跑完并落盘，不会半途而废。
+        let task = Task<Session?, Never> { [weak self] in
+            guard let self else { return nil }
+            defer { self.refreshTask = nil }
+            do {
+                let token = try await self.renewAccessToken(using: refresh)
+                let renewed = Session(
+                    accessToken: token.accessToken,
+                    // Logto 会在刷新时轮换 refresh token，缺省则沿用旧的。
+                    refreshToken: token.refreshToken ?? refresh,
+                    expiresAt: Date().addingTimeInterval(token.expiresIn),
+                    subject: base.subject,
+                    displayName: base.displayName,
+                    email: base.email,
+                    avatarURL: base.avatarURL
+                )
+                // 续期在途时用户可能已登出或换号。代号对不上就丢弃结果，
+                // 绝不能把已退出的会话「复活」回来。
+                guard self.sessionGeneration == generation else { return nil }
+                self.persist(renewed)
+                self.session = renewed
+                return renewed
+            } catch {
+                if Self.invalidatesSession(error) {
+                    self.invalidateLocalSession()
+                }
+                return nil
+            }
         }
+        refreshTask = task
+        return await task.value
+    }
+
+    /// 只有「服务端明确拒绝了这个 refresh token」才允许清会话。
+    ///
+    /// - 400 且错误体含 `invalid_grant`：RFC 6749 §5.2 规定该值表示 refresh token
+    ///   无效、过期、已被吊销或已被轮换 —— 会话确实救不回来了。
+    /// - 401：同样代表凭证被拒。
+    /// - 403 / 429 / 5xx / 断网 / 超时 / 取消：都**不代表** token 失效，
+    ///   此时登出等于把用户的网络抖动变成「账号被踢」。
+    private static func invalidatesSession(_ error: Error) -> Bool {
+        guard case let AuthError.http(status, body) = error else { return false }
+        if status == 401 { return true }
+        return status == 400 && (body?.contains("invalid_grant") == true)
     }
 
     func dismissError() { lastError = nil }
 
-    /// 本地登出：清 token 与资料。Logto 端是 Cookie-only 浏览器会话，
-    /// native bearer 客户端没有会话登出重定向可走，这里只清本地。
+    /// 退出登录：清本地会话 + 作废在途续期 + 异步吊销 refresh token。
     ///
-    /// 刻意不动 `keyOfflineGrant`：consent 是「用户对本应用的一次性许可」，登出不代表
-    /// 收回它 —— 否则每次重新登录都要再看一遍授权页。
+    /// 吊销走 RFC 7009。不吊销的话该 token 在服务端最长还有 14 天有效，
+    /// 配合浏览器里仍存活的 Logto Cookie，用户再登录会被静默送回原账号。
+    /// 吊销是网络请求，**不阻塞**本地登出：吊销失败也只是服务端多留一个无效 token，
+    /// 不该让用户对着转圈等。
     func logout() {
-        defaults.removeObject(forKey: Self.keySession)
+        let token = session?.refreshToken
+        invalidateLocalSession()
+        forceAccountPicker = true
+        if let token, !token.isEmpty {
+            // 先把 token 拷出来再清：invalidateLocalSession 之后 session 已是 nil。
+            Task.detached { await Self.revokeRefreshToken(token) }
+        }
+    }
+
+    /// 只清本地：代号自增让在途续期作废、取消在飞任务、清存储。
+    private func invalidateLocalSession() {
+        sessionGeneration &+= 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        Self.clearStoredSession(defaults: defaults, keychainTag: keychainTag)
         session = nil
         lastError = nil
+    }
+
+    /// 吊销 refresh token（RFC 7009）。失败只记日志，不影响登出流程。
+    nonisolated private static func revokeRefreshToken(_ token: String) async {
+        var request = URLRequest(url: AuthConfig.revocationEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 8
+        let body = [
+            "token=\(formEncode(token))",
+            "client_id=\(formEncode(AuthConfig.clientID))",
+            "token_type_hint=refresh_token",
+        ].joined(separator: "&")
+        request.httpBody = Data(body.utf8)
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            NSLog("[AuthStore] 吊销 refresh token 返回 HTTP %d", code)
+        } catch {
+            NSLog("[AuthStore] 吊销 refresh token 失败：%@", (error as NSError).code)
+        }
     }
 
     #if DEBUG
@@ -277,18 +358,29 @@ final class AuthStore {
     /// UserDefaults 也不可靠 —— `cfprefsd` 会用内存缓存把文件里的值覆盖回去。
     /// 在 App 进程内改就没有这个问题。Release 构建里整个方法不存在。
     func debugExpireAndRefresh() {
-        guard var dict = defaults.dictionary(forKey: Self.keySession),
-              let access = dict["access_token"] as? String, !access.isEmpty
+        guard var stored = Keychain.read(tag: keychainTag)
+            .flatMap({ try? JSONDecoder().decode(StoredSession.self, from: $0) }),
+              !stored.accessToken.isEmpty
         else {
             NSLog("[AuthStore] debug: 本地没有会话，先登录一次")
             return
         }
-        dict["expires_at"] = 0  // 1970 年，强制走 renewAccessToken
-        defaults.set(dict, forKey: Self.keySession)
-        session = Self.readPersisted(defaults)
+        let dict = StoredSession(
+            version: AuthStore.payloadVersion,
+            accessToken: stored.accessToken,
+            refreshToken: stored.refreshToken,
+            expiresAt: 0,  // 1970 年，强制走 renewAccessToken
+            subject: stored.subject,
+            displayName: stored.displayName,
+            email: stored.email,
+            avatarURL: stored.avatarURL
+        )
+        stored = dict
+        if let data = try? JSONEncoder().encode(dict) { try? Keychain.write(data, tag: keychainTag) }
+        session = dict.session
         Task { [weak self] in
             let token = await self?.accessToken()
-            NSLog("[AuthStore] debug 强制续期结果=%@", token == nil ? "失败（已登出）" : "成功")
+            NSLog("[AuthStore] debug 强制续期结果=%@", token == nil ? "失败" : "成功")
         }
     }
 
@@ -314,9 +406,9 @@ final class AuthStore {
     }
 
     private func buildAuthorizationRequest() throws -> AuthorizationRequest {
-        let verifier = Self.randomURLSafe(byteCount: 32)
+        let verifier = try Self.randomURLSafe(byteCount: 32)
         let challenge = Self.base64URL(Data(CryptoKit.SHA256.hash(data: Data(verifier.utf8))))
-        let state = Self.randomURLSafe(byteCount: 16)
+        let state = try Self.randomURLSafe(byteCount: 16)
 
         var items = [
             URLQueryItem(name: "client_id", value: AuthConfig.clientID),
@@ -327,9 +419,18 @@ final class AuthStore {
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
-        // 只在还没拿到过离线授权时补 prompt=consent，见 offlineAccessGranted。
-        if !offlineAccessGranted {
-            items.append(URLQueryItem(name: "prompt", value: "consent"))
+        // OIDC Core §6：请求带 `offline_access` 时 `prompt` 必须同时带 `consent`，
+        // 否则授权服务器**必须忽略** offline_access、不签发 refresh token。Logto 严格执行，
+        // 漏掉时表现是「登录一切正常，但一小时后必然掉线」，极难察觉。
+        //
+        // **始终带**，不做「首次才带」的优化：Logto 的 first-party 应用在已获授权时
+        // 直接复用 grant，不会重复弹授权页；而一旦某次漏带，那个「已授权」标志就再也
+        // 自愈不回来（早期版本用 `offlineAccessGranted` 只置位不复位，还不分用户，
+        // 结果一次失败导致之后所有登录都拿不到 refresh token）。
+        items.append(URLQueryItem(name: "prompt", value: "consent"))
+        // 登出过：强制 Logto 重新选号，否则浏览器里活着的 Cookie 会把人静默送回上一个账号。
+        if forceAccountPicker {
+            items.append(URLQueryItem(name: "prompt", value: "login"))
         }
         // resource 目前为 nil（opaque token）。若将来开启，这里会带上面板值。
         if let resource = AuthConfig.resource {
@@ -460,39 +561,111 @@ final class AuthStore {
 
     // MARK: - 持久化
 
-    private func persist(_ s: Session) {
-        let dict: [String: Any] = [
-            "access_token": s.accessToken,
-            "refresh_token": s.refreshToken ?? "",
-            "expires_at": s.expiresAt.timeIntervalSince1970,
-            "subject": s.subject,
-            "display_name": s.displayName,
-            "email": s.email,
-            "avatar_url": s.avatarURL?.absoluteString ?? "",
-        ]
-        defaults.set(dict, forKey: Self.keySession)
+    /// 落盘载荷。带 `version` 是为了以后加字段时能平滑升级 —— 早期版本直接存字典，
+    /// 模型一改、解析失败就静默丢会话，用户还得重新走一遍浏览器授权。
+    private struct StoredSession: Codable {
+        let version: Int
+        let accessToken: String
+        let refreshToken: String?
+        let expiresAt: Double
+        let subject: String
+        let displayName: String
+        let email: String
+        let avatarURL: String?
+
+        init(session: Session) {
+            version = AuthStore.payloadVersion
+            accessToken = session.accessToken
+            refreshToken = session.refreshToken
+            expiresAt = session.expiresAt.timeIntervalSince1970
+            subject = session.subject
+            displayName = session.displayName
+            email = session.email
+            avatarURL = session.avatarURL?.absoluteString
+        }
+
+        /// 结构体一旦声明了自定义 init，编译器就不再合成 memberwise init；显式写出来。
+        init(
+            version: Int,
+            accessToken: String,
+            refreshToken: String?,
+            expiresAt: Double,
+            subject: String,
+            displayName: String,
+            email: String,
+            avatarURL: String?
+        ) {
+            self.version = version
+            self.accessToken = accessToken
+            self.refreshToken = refreshToken
+            self.expiresAt = expiresAt
+            self.subject = subject
+            self.displayName = displayName
+            self.email = email
+            self.avatarURL = avatarURL
+        }
+
+        var session: Session {
+            Session(
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                expiresAt: Date(timeIntervalSince1970: expiresAt),
+                subject: subject,
+                displayName: displayName,
+                email: email,
+                avatarURL: avatarURL.flatMap(URL.init(string:))
+            )
+        }
     }
 
-    /// 读回本地会话。
+    private func persist(_ s: Session) {
+        guard let data = try? JSONEncoder().encode(StoredSession(session: s)) else { return }
+        do {
+            try Keychain.write(data, tag: keychainTag)
+        } catch {
+            NSLog("[AuthStore] Keychain 写入失败：%@", (error as NSError).code)
+        }
+    }
+
+    private static func clearStoredSession(defaults: UserDefaults, keychainTag: String) {
+        Keychain.delete(tag: keychainTag)
+        // 旧版本明文残留一并清掉，避免升级后 Keychain 与 UserDefaults 同时有会话。
+        defaults.removeObject(forKey: keySession)
+    }
+
+    /// 读回本地会话。优先 Keychain；发现旧版 UserDefaults 里的明文会话则**迁移**过来。
     ///
     /// 有 token 但已过期时**仍然恢复**，交给 `accessToken()` 用 refresh token 续期 ——
     /// 冷启动时不该把还能续的会话丢掉。
-    private static func readPersisted(_ defaults: UserDefaults) -> Session? {
-        guard let dict = defaults.dictionary(forKey: keySession),
-              let access = dict["access_token"] as? String,
-              !access.isEmpty
+    private static func readPersisted(defaults: UserDefaults, keychainTag: String) -> Session? {
+        if let data = Keychain.read(tag: keychainTag),
+           let stored = try? JSONDecoder().decode(StoredSession.self, from: data),
+           !stored.accessToken.isEmpty {
+            defaults.removeObject(forKey: keySession)  // 迁移完成后清掉旧明文
+            return stored.session
+        }
+
+        // 一次性迁移：≤ 1.4 版本把 token 明文存在 UserDefaults。
+        guard let legacy = defaults.dictionary(forKey: keySession),
+              let access = legacy["access_token"] as? String, !access.isEmpty
         else { return nil }
-        let refresh = (dict["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return Session(
+        let refresh = (legacy["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let migrated = Session(
             accessToken: access,
             refreshToken: refresh,
-            expiresAt: Date(timeIntervalSince1970: dict["expires_at"] as? Double ?? 0),
-            subject: dict["subject"] as? String ?? "",
-            displayName: dict["display_name"] as? String ?? "",
-            email: dict["email"] as? String ?? "",
-            avatarURL: (dict["avatar_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            expiresAt: Date(timeIntervalSince1970: legacy["expires_at"] as? Double ?? 0),
+            subject: legacy["subject"] as? String ?? "",
+            displayName: legacy["display_name"] as? String ?? "",
+            email: legacy["email"] as? String ?? "",
+            avatarURL: (legacy["avatar_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 .flatMap(URL.init(string:))
         )
+        if let data = try? JSONEncoder().encode(StoredSession(session: migrated)) {
+            try? Keychain.write(data, tag: keychainTag)
+        }
+        defaults.removeObject(forKey: keySession)
+        NSLog("[AuthStore] 已把 UserDefaults 里的旧会话迁移到 Keychain")
+        return migrated
     }
 
     // MARK: - 工具
@@ -509,19 +682,25 @@ final class AuthStore {
     private enum AuthError: Error, LocalizedError {
         case badURL
         case http(status: Int, body: String?)
+        case randomSourceUnavailable
 
         var errorDescription: String? {
             switch self {
             case .badURL: "授权地址无法构造"
+            case .randomSourceUnavailable: "系统随机源不可用，已中止登录"
             case let .http(status, body): body.map { "HTTP \(status): \($0)" } ?? "HTTP \(status)"
             }
         }
     }
 
-    private static func randomURLSafe(byteCount: Int) -> String {
+    /// 生成 URL-safe 随机串。系统随机源失败时**抛错**，不用低质量随机替代 ——
+    /// PKCE 的 verifier 和 state 一旦可预测，整个授权码流程就失去意义。
+    /// （旧实现丢弃了 `SecRandomCopyBytes` 的返回值，失败时会静默发出一段全零。）
+    private static func randomURLSafe(byteCount: Int) throws -> String {
         var bytes = [UInt8](repeating: 0, count: byteCount)
-        // 系统随机源失败时抛错，不用低质量替代。
-        _ = SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes)
+        guard SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes) == errSecSuccess else {
+            throw AuthError.randomSourceUnavailable
+        }
         return base64URL(Data(bytes))
     }
 
@@ -533,7 +712,8 @@ final class AuthStore {
     }
 
     /// form-urlencoded：空格必须是 `+`，且要转义 `&` `=` 等保留字符。
-    private static func formEncode(_ s: String) -> String {
+    /// `nonisolated` 是因为 [revokeRefreshToken] 在脱离主 actor 的上下文里用它。
+    nonisolated private static func formEncode(_ s: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return s.addingPercentEncoding(withAllowedCharacters: allowed)?
@@ -548,10 +728,67 @@ final class AuthStore {
     }
 
     private static let keySession = "seu_wiki_auth_session"
-    /// 是否已取得 offline_access 授权，见 [offlineAccessGranted]。
-    private static let keyOfflineGrant = "seu_wiki_auth_offline_grant"
+    /// 登出后置位，下次授权带 `prompt=login` 强制选号，见 [forceAccountPicker]。
+    private static let keyForceAccountPicker = "seu_wiki_auth_force_account_picker"
+    /// 落盘载荷版本。字段只增不改时不需要动它；改动语义时 +1 并在解码处分支。
+    private static let payloadVersion = 2
     /// 提前这么多秒就当作过期，避免请求正好卡在边界上被拒。
     private static let expirySkew: TimeInterval = 60
+}
+
+/// 会话载荷的 Keychain 存取。
+///
+/// token 是 bearer 凭证，**不能**放 UserDefaults：那里的明文会进 iTunes/Finder 备份、
+/// 也能被 `defaults read` 直接读出来。`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+/// 的含义是「首次解锁后可用、且不随备份迁移到别的设备」—— 换机时用户重新登录一次，
+/// 比把一个能直接调用 IF.Link API 的 token 复制过去安全。
+private enum Keychain {
+    private static let service = "tech.iflink.seuwiki"
+
+    static func write(_ data: Data, tag: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: tag,
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var insert = query
+            insert.merge(attributes) { _, new in new }
+            let addStatus = SecItemAdd(insert as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw KeychainError.status(addStatus) }
+        } else if status != errSecSuccess {
+            throw KeychainError.status(status)
+        }
+    }
+
+    static func read(tag: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: tag,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
+        return item as? Data
+    }
+
+    static func delete(tag: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: tag,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    enum KeychainError: Error { case status(OSStatus) }
 }
 
 /// 只是个占位符，真正持有 session 的对象是 [AuthStore]；
@@ -563,6 +800,15 @@ private final class AuthPresenter: NSObject, ASWebAuthenticationPresentationCont
     var anchor: ASPresentationAnchor?
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        anchor ?? AuthStore.keyWindow() ?? ASPresentationAnchor()
+        if let anchor { return anchor }
+        if let key = AuthStore.keyWindow() { return key }
+        // 理论到不了这里：signIn() 开窗前就拿到并写入了 anchor，App 没有 key window 时
+        // 根本不在前台。iOS 26 起 `UIWindow()` 无参 init 已废弃，只能带 windowScene；
+        // 真的一个 scene 都没有时没有别的造法，保留这一行作最后的兜底。
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first {
+            return ASPresentationAnchor(windowScene: scene)
+        }
+        return ASPresentationAnchor()
     }
 }
