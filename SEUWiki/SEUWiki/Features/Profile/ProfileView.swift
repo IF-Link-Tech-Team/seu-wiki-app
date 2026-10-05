@@ -60,7 +60,6 @@ struct ProfileView: View {
                     Button("完成") { dismiss() }
                 }
             }
-            .environment(auth)
         }
     }
 }
