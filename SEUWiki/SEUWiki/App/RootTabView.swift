@@ -24,8 +24,30 @@ struct RootTabView: View {
     /// 存在的理由是**验收**：模拟器是无头跑的，合成点击不可用，没有这个开关就没法
     /// 截到非首页的界面做逐屏核对（深浅色、无障碍、布局都靠它）。Release 构建里
     /// 整个分支不存在。
-    init(initialTab: AppTab = .home) {
+    init(initialTab: AppTab = .home, deepLinkDoc: DocSearchHit? = nil) {
         _selection = State(initialValue: initialTab)
+        _deepLinkDoc = State(initialValue: deepLinkDoc)
+    }
+
+    @State private var deepLinkDoc: DocSearchHit?
+
+    /// Debug 专用：解析 `-uidoc <slug>`。
+    static var launchDoc: DocSearchHit? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-uidoc"), index + 1 < args.count else { return nil }
+        let slug = args[index + 1]
+        return DocSearchHit(
+            slug: slug,
+            kind: slug.hasPrefix("experience/") ? .experience : .survival,
+            title: slug,
+            description: nil,
+            occurredAt: nil,
+            anchor: nil
+        )
+        #else
+        return nil
+        #endif
     }
 
     static var launchTab: AppTab {
@@ -72,6 +94,18 @@ struct RootTabView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        // Debug 深链：`-uidoc <slug>` 直接打开某个手册/经验条目详情。
+        // DocDetailView 是全新实现（HTML 按标题切分、目录跳转、锚点定位），
+        // 无头模拟器点不进去，必须有个直达入口才能验收。
+        .overlay {
+            if let deepLinkDoc {
+                NavigationStack {
+                    DocDetailView(slug: deepLinkDoc.slug, kind: deepLinkDoc.kind,
+                                  highlightAnchor: deepLinkDoc.anchor?.id)
+                }
+                .background(.regularMaterial)
+            }
+        }
         .sheet(isPresented: $showsReminders) {
             // 继承 App 根上注入的 `UserProfile`（sheet 内容会继承环境）。
             MyRemindersView()

@@ -18,7 +18,7 @@ struct SEUWikiApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootTabView(initialTab: RootTabView.launchTab)
+            RootTabView(initialTab: RootTabView.launchTab, deepLinkDoc: RootTabView.launchDoc)
                 .environment(profile)
                 .environment(feedStore)
                 .preferredColorScheme(appearance.colorScheme)

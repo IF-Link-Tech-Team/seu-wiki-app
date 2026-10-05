@@ -318,9 +318,16 @@ extension String {
 }
 
 extension CharacterSet {
-    /// unreserved 字符集 + `/`。
+    /// URL 路径里允许**原样出现**的字符：ASCII 字母数字 + `-._~` + `/`。
+    ///
+    /// ⚠️ **不能用 `CharacterSet.alphanumerics`**：它是 Unicode 感知的，会把中文
+    /// 汉字当成「字母」直接放行，于是 slug 完全没被编码，后端按字面量去查表必然 404。
+    /// （自检里那条 `slug/中文已编码` 就是防这个的。）
     static let seuWikiPath: CharacterSet = {
-        var set = CharacterSet.alphanumerics
+        var set = CharacterSet()
+        set.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        set.insert(charactersIn: "abcdefghijklmnopqrstuvwxyz")
+        set.insert(charactersIn: "0123456789")
         set.insert(charactersIn: "-._~/")
         return set
     }()
