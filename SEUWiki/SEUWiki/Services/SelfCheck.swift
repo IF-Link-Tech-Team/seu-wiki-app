@@ -15,6 +15,11 @@ import SwiftUI
 /// 手工往 `project.pbxproj` 里加 target + TEST_HOST 的风险高于收益；
 /// 自检跑在真机/模拟器的真实运行环境里，反而能覆盖 `Calendar.current`、
 /// 时区、locale 这些最容易出错的系统依赖。
+///
+/// 整个类型包在 `#if DEBUG` 里：它只在 `SEUWikiApp.init` 被调用，且依赖若干同样
+/// 只在 DEBUG 存在的 API（如 `ProfileStorage.runPersistenceSelfTest`）。不隔离的话
+/// **Release 构建会直接失败**——自检是调试设施，不该进发布二进制。
+#if DEBUG
 enum SelfCheck {
     struct Result {
         var name: String
@@ -267,3 +272,4 @@ enum SelfCheck {
         expect("持久化/schema 版本已写入", ProfileStorage.storedVersion(for: .courses) >= 1)
     }
 }
+#endif
