@@ -11,7 +11,9 @@ import SwiftUI
 /// 后端契约见 `Reference/iflab-forum/docs/auth.md` §2「Bearer access tokens (native app)」：
 ///
 /// - 授权码 + PKCE（S256），public client 无 secret；
-/// - 必须请求 `openid profile email roles`，否则 UserInfo 缺声明、角色映射静默降级；
+/// - scope 为 `openid profile email roles offline_access`。其中 `roles` **当前只是先要着**，
+///   代码里没有解析也没有任何按角色分支的逻辑；真要做角色化功能时记得连 UserInfo 解析与
+///   持久化一起补，详见 `AuthConfig.scopes`；
 /// - 之后的后端请求一律带 `Authorization: Bearer <access_token>`，该头是权威凭证，
 ///   token 无效只会得到匿名/401，绝不回退 Cookie 会话。
 ///

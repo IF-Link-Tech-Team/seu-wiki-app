@@ -16,8 +16,19 @@ enum AuthConfig {
     static let redirectURI = "tech.iflink.seuwiki://callback"
     static let callbackScheme = "tech.iflink.seuwiki"
 
-    /// 必须请求的 scope：与 Cookie 客户端一致（否则 UserInfo 缺 email / roles 声明，
-    /// 社区角色映射静默降级）；`offline_access` 换取 refresh token。
+    /// 请求的 scope。
+    ///
+    /// - `openid` / `profile` / `email`：UserInfo 里拿到 sub、昵称、邮箱，这些**已经在用**。
+    /// - `offline_access`：换 refresh token。**必须同时带 `prompt=consent`**，否则 Logto
+    ///   按 OIDC Core §6 忽略它、不签发 refresh token，详见 `AuthStore.offlineAccessGranted`。
+    /// - `roles`：**目前只是先要着，代码里一处都没用**。Logto 的 UserInfo 确实会返回
+    ///   （实测 `["community_super_admin"]`），但 `UserInfo` 结构体没有这个字段、`Session`
+    ///   也不存，全工程没有任何按角色分支的逻辑 —— 早期那句「否则社区角色映射静默降级」
+    ///   是在描述一个不存在的功能，已删除。
+    ///
+    /// 保留在 scope 里是因为它不影响 token 形态、也不带来副作用，等到真要做社区/论坛的
+    /// 角色化功能时就不用重新走一遍授权。**但那时要动的不只是这里**：得把 `roles` 加进
+    /// `AuthStore` 的 UserInfo 解码与 `Session` 持久化，否则请求了也是白请求。
     static let scopes = ["openid", "profile", "email", "roles", "offline_access"]
 
     /// API resource：**留空**（nil），Logto 签发 opaque access token，后端经 UserInfo 校验。
