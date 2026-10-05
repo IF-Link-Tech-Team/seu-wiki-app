@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 关键纯逻辑的断言套件。
 ///
@@ -41,6 +42,7 @@ enum SelfCheck {
         checkReminderBadge()
         checkReminderNotification()
         checkReminderFireDate()
+        checkSFSymbols()
         checkPersistence()
         let snapshot = results
         let failed = snapshot.filter { !$0.passed }
@@ -50,7 +52,30 @@ enum SelfCheck {
             NSLog("[SelfCheck] %d/%d 项失败：%@", failed.count, snapshot.count,
                   failed.map(\.name).joined(separator: ", "))
         }
+        writeReport(snapshot)
         return snapshot
+    }
+
+    /// 自检报告落盘。
+    ///
+    /// `NSLog` 在模拟器上取不出来：`log show` 匹配不到，`simctl launch --console-pty`
+    /// 也接不到（这个工程的构建产物走的是索引目录，`console-pty` 那条路在这里是断的）。
+    /// 于是「自检到底跑了没有、过了几条」只能靠肉眼看控制台，等于没法验证。
+    /// 写到 Documents 下，宿主侧直接读文件就能确认。
+    private static func writeReport(_ snapshot: [Result]) {
+        let failed = snapshot.filter { !$0.passed }
+        var lines = ["\(snapshot.count - failed.count)/\(snapshot.count) 通过"]
+        lines += snapshot.map { r in
+            r.passed ? "PASS  \(r.name)" : "FAIL  \(r.name) — \(r.detail ?? "")"
+        }
+        write(lines.joined(separator: "\n"))
+    }
+
+    private static func write(_ text: String) {
+        guard let dir = FileManager.default.urls(for: .documentDirectory,
+                                                 in: .userDomainMask).first else { return }
+        try? text.write(to: dir.appendingPathComponent("selfcheck.txt"),
+                        atomically: true, encoding: .utf8)
     }
 
     private static var results: [Result] = []
@@ -347,6 +372,52 @@ enum SelfCheck {
         expect("提醒时刻/跨夏令时仍是 9 点",
                nyParts.year == 2026 && nyParts.month == 10 && nyParts.day == 31 && nyParts.hour == 9,
                "实际 \(nyParts)")
+    }
+
+    // MARK: - SF Symbol 有效性
+
+    /// 工程里用到的**全部** SF Symbol 名。
+    ///
+    /// 这份清单是照着源码全量扫出来的（`systemName:` / `systemImage:` 字面量，
+    /// 加上三元表达式里的两个分支）。**新增图标时要往这里加一行**，
+    /// 否则自检验不到 —— 这是刻意的：让「加了图标忘了验」变成一件看得见的事。
+    private static let usedSFSymbols = [
+        "airplane", "arrow.triangle.branch", "bell", "bell.badge", "bell.fill", "bell.slash",
+        "book", "book.closed", "book.closed.fill", "bookmark", "bookmark.fill",
+        "books.vertical", "books.vertical.fill", "briefcase",
+        "bubble.left.and.text.bubble.right", "building.2", "bus",
+        "calendar.badge.checkmark", "calendar.day.timeline.left", "checklist", "checkmark",
+        "chevron.right", "circle.lefthalf.filled", "clock.badge.exclamationmark", "creditcard",
+        "doc.text", "exclamationmark.triangle", "figure.walk.arrival", "flame.fill", "flask",
+        "graduationcap", "graduationcap.circle", "graduationcap.circle.fill", "graduationcap.fill",
+        "house", "info.circle", "leaf",
+        "line.3.horizontal.decrease.circle", "line.3.horizontal.decrease.circle.fill",
+        "link", "link.circle.fill", "list.bullet.indent", "lock.shield", "map", "mappin",
+        "newspaper", "pencil.and.list.clipboard", "percent", "person",
+        "person.2.badge.gearshape", "person.crop.circle", "person.crop.circle.fill",
+        "plus", "plus.circle.fill", "safari", "square.grid.2x2", "square.stack.3d.up.fill",
+        "star.fill", "text.book.closed", "tram", "trash", "trophy",
+        "wifi.exclamationmark", "wifi.slash", "xmark.circle", "yensign.circle",
+    ]
+
+    private static func checkSFSymbols() {
+        // `Image(systemName:)` 拿到不认识的名字**不报错**，只是画一个空白 —— 没有
+        // 编译错误、没有运行时异常，构建照样全绿。SF Symbols 又是随系统版本增补的，
+        // 在低版本上写高版本的符号名尤其容易中招。
+        //
+        // 安卓端对应的那条断言是在模拟器截图里发现「收藏按钮渲染成九宫格」之后补的
+        // （`SeuIcons` 兜底成了一个语义完全不相干的图形）。iOS 这边兜底是空白，
+        // 一样只有肉眼能发现，所以在这里用 `UIImage(systemName:)` 直接验一遍。
+        //
+        // 这里刻意**不去扫源码目录**：早先试过从 `#file` 反推源码根再遍历，结果
+        // `#file` 在这套构建配置下是相对路径，删两级退化成 `/`，自检就在
+        // `App.init` 里遍历整个文件系统 —— App 直接白屏起不来。模拟器里的 App
+        // 本来也不该去读开发机的源码树。
+        expect("SF Symbol/清单非空", !usedSFSymbols.isEmpty)
+        for name in usedSFSymbols {
+            expect("SF Symbol/\(name)", UIImage(systemName: name) != nil,
+                   "在当前系统（iOS \(ProcessInfo.processInfo.operatingSystemVersionString)）上不存在，会渲染成空白")
+        }
     }
 
     // MARK: - 持久化
