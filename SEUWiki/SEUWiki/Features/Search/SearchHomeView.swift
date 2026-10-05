@@ -26,18 +26,18 @@ struct SearchHomeView: View {
             }
             .groupedBackground()
             .navigationTitle("搜索")
+            // 不指定 placement：iOS 26 里把搜索框钉在导航栏抽屉上会**失去**底部
+            // 玻璃 tab 栏随滚动的变形/最小化动画，视觉上像是两个系统打架。
             .searchable(
                 text: $keyword,
-                placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "搜索通知、经验、手册"
             )
             .onChange(of: trimmedKeyword, initial: true) { _, newValue in
                 store.search(keyword: newValue)
             }
+            // 只在根部注册一次 destination。早期版本在这里又注册了一遍
+            // `HandbookEntry`，与根视图的 `appNavigationDestinations()` 重复。
             .appNavigationDestinations()
-            .navigationDestination(for: HandbookEntry.self) { entry in
-                SearchHandbookEntryView(entry: entry)
-            }
         }
     }
 
@@ -48,6 +48,16 @@ struct SearchHomeView: View {
                 withAnimation(.smooth) {
                     keyword = word
                 }
+            }
+        } else if let message = store.errorMessage {
+            // 搜索失败要**如实告诉用户**并给重试，绝不悄悄换成假结果。
+            ContentUnavailableView {
+                Label("搜索失败", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("重试") { store.search(keyword: trimmedKeyword) }
+                    .buttonStyle(.borderedProminent)
             }
         } else if store.isEmpty {
             // 线上搜索进行中先显示加载中，避免空态闪烁。
@@ -60,12 +70,7 @@ struct SearchHomeView: View {
         } else if scope == .all {
             aggregatedResults
         } else if store.isEmpty(for: scope) {
-            if scope == .feed, store.isSearching {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ContentUnavailableView.search(text: trimmedKeyword)
-            }
+            ContentUnavailableView.search(text: trimmedKeyword)
         } else {
             SearchSourceListView(scope: scope, keyword: trimmedKeyword, store: store, title: "搜索")
         }
@@ -112,9 +117,9 @@ struct SearchHomeView: View {
             count: store.forum.count,
             destination: SearchSourceListView(scope: .forum, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(store.forum.prefix(3))) { post in
-                NavigationLink(value: post) {
-                    SearchForumRow(post: post, keyword: trimmedKeyword)
+            sectionRows(Array(store.forum.prefix(3))) { hit in
+                NavigationLink(value: hit) {
+                    SearchDocRow(hit: hit, keyword: trimmedKeyword)
                         .padding(14)
                         .contentShape(.rect)
                 }
@@ -129,9 +134,9 @@ struct SearchHomeView: View {
             count: store.handbook.count,
             destination: SearchSourceListView(scope: .handbook, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(store.handbook.prefix(3))) { entry in
-                NavigationLink(value: entry) {
-                    SearchHandbookRow(entry: entry, keyword: trimmedKeyword)
+            sectionRows(Array(store.handbook.prefix(3))) { hit in
+                NavigationLink(value: hit) {
+                    SearchDocRow(hit: hit, keyword: trimmedKeyword)
                         .padding(14)
                         .contentShape(.rect)
                 }
@@ -157,5 +162,5 @@ struct SearchHomeView: View {
 }
 
 #Preview {
-    SearchHomeView(store: SearchStore(mockOnly: true))
+    SearchHomeView()
 }

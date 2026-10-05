@@ -8,6 +8,9 @@ struct FeedItemDetailView: View {
     @State private var showsReminderEditor = false
     @State private var detail: FeedItemDetail?
     @State private var isLoadingDetail = false
+    /// 正文由 `HTMLRenderer` 在后台线程解析成 `AttributedString`。
+    /// 不再在 body 里同步解析 —— 那会卡住首帧。
+    @State private var renderedBody: AttributedString?
 
     let item: FeedItem
 
@@ -41,8 +44,8 @@ struct FeedItemDetailView: View {
                     deadlineRow(deadline)
                 }
 
-                if let body = detail?.body {
-                    Text(body)
+                if let renderedBody {
+                    Text(renderedBody)
                         .lineSpacing(6)
                         .tint(Color.accentColor)
                 } else {
@@ -78,17 +81,24 @@ struct FeedItemDetailView: View {
         .groupedBackground()
         .navigationTitle(item.category.name)
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
+        // iOS 26 起 `.safeAreaBar` 才是正确的底部条写法：系统自动处理材质、圆角与
+        // 和 tab 栏的层级关系。早期的 `.safeAreaInset` + `.background(.bar)` 是手绘伪材质，
+        // 在 iOS 26 上会和 tab 栏叠成两层。
+        .safeAreaBar(edge: .bottom) {
             actionBar
         }
         .sheet(isPresented: $showsReminderEditor) {
             ReminderEditView(item: item)
         }
-        .task {
+        .task(id: item.id) {
             guard let store, detail == nil else { return }
             isLoadingDetail = true
             defer { isLoadingDetail = false }
-            detail = try? await store.detail(for: item)
+            guard let loaded = try? await store.detail(for: item) else { return }
+            detail = loaded
+            if let html = loaded.bodyHTML {
+                renderedBody = await HTMLRenderer.render(html)
+            }
         }
     }
 
@@ -111,15 +121,13 @@ struct FeedItemDetailView: View {
                 Text("截止时间")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(deadline.formatted(date: .long, time: .shortened))
+                Text(TimeFormat.deadline(deadline))
                     .font(.subheadline.weight(.semibold))
             }
 
             Spacer()
 
-            Text(deadline, style: .relative)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.orange)
+            RelativeTimeText(date: deadline, font: .caption.weight(.medium), color: .orange)
         }
         .padding(12)
         .background(.orange.opacity(0.1), in: .rect(cornerRadius: 12, style: .continuous))
@@ -149,7 +157,8 @@ struct FeedItemDetailView: View {
         .controlSize(.large)
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(.bar)
+        // 材质由 `.safeAreaBar` 提供，这里不再自己画一层 `.background(.bar)`，
+        // 否则会与系统底栏叠成两层灰。
     }
 }
 

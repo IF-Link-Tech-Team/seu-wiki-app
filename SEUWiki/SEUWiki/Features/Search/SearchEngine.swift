@@ -1,34 +1,15 @@
-import Foundation
+import SwiftUI
 
-/// 搜索信源 provider：大小写 / 变音符号不敏感的包含匹配。
-/// - 「通知」线上实现是 `FeedAPIClient.pool`（由 SearchStore 调用，防抖 + 分页），
-///   这里的本地匹配仅作网络失败时的回退；
-/// - 「经验」「手册」当前是 MockData 本地 provider。
+/// 搜索的本地工具只剩「关键词高亮」了 —— 三个信源的数据都来自线上
+/// `/api/site/pool`（`items` + `docs`），不再有本地 provider，也不再有 Mock 回退。
+///
+/// 早期版本这里的 `searchForum` / `searchHandbook` 拿 `MockData` 本地匹配，
+/// 表现是「搜什么都出同一批编造的帖子和手册」；`searchFeedOffline` 更糟 ——
+/// 线上失败时**静默**换成本地假数据，用户以为搜到了，其实看到的是编造内容。
 enum SearchEngine {
-    /// 「通知」信源的回退 provider：线上 pool 搜索失败时用 MockData 本地匹配，不阻塞 UI。
-    static func searchFeedOffline(keyword: String) -> [FeedItem] {
-        MockData.feedItems.filter {
-            matches($0.title, keyword) || matches($0.summary, keyword)
-        }
-    }
-
-    /// 「经验」信源 provider。论坛后端 seu-forum 已部署但公网 DNS 未生效，App 暂时无法访问，
-    /// 当前用 MockData 本地匹配；后续替换为 seu-forum 的 `GET /api/posts`（公开只读）远程实现。
-    static func searchForum(keyword: String) -> [ForumPost] {
-        MockData.forumPosts.filter {
-            matches($0.title, keyword) || matches($0.excerpt, keyword)
-        }
-    }
-
-    /// 「手册」信源 provider：MockData 本地匹配。
-    static func searchHandbook(keyword: String) -> [HandbookEntry] {
-        MockData.handbookSections.flatMap(\.entries).filter {
-            matches($0.title, keyword) || matches($0.subtitle, keyword) || matches($0.body, keyword)
-        }
-    }
-
     static func matches(_ text: String, _ key: String) -> Bool {
-        text.range(of: key, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        guard !key.isEmpty else { return false }
+        return text.range(of: key, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 }
 
@@ -47,5 +28,20 @@ extension String {
             lowerBound = match.upperBound
         }
         return attributed
+    }
+}
+
+/// 带关键词高亮的文本。
+///
+/// 单独抽一个组件是因为 `Text(a) + Text(b)` 拼接之后得到的是 `Text` 而不是
+/// `AttributedString`，没法再回头做高亮；而 `Text + Text` 在 iOS 26 已弃用。
+struct HighlightedText: View {
+    let text: String
+    let keyword: String
+    var lineLimit: Int? = nil
+
+    var body: some View {
+        Text(text.highlighting(keyword))
+            .lineLimit(lineLimit)
     }
 }

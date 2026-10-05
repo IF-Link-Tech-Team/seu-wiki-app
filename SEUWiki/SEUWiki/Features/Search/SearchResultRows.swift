@@ -17,74 +17,55 @@ struct SearchFeedRow: View {
                 Text(item.title.highlighting(keyword))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                (Text("\(item.sourceName) · ") + Text(item.summary.highlighting(keyword)))
+                // `Text(a) + Text(b)` 在 iOS 26 已弃用，改成先拼字符串再整体高亮。
+                HighlightedText(text: "\(item.sourceName) · \(item.summary)", keyword: keyword, lineLimit: 1)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
         }
     }
 }
 
-/// 搜索结果行（经验论坛）：话题图标 + 标题/摘要，关键词加粗。
-struct SearchForumRow: View {
-    let post: ForumPost
+/// 搜索结果行（经验长文 / 生存手册）。
+///
+/// 两个信源在后端是同一份 `DocSearchHit`（`/api/site/pool` 的 `docs` 数组，
+/// 靠 `kind` 区分），所以共用一个行组件，只是图标与配色不同 —— 这样「经验」和
+/// 「手册」两栏展示的信息层次天然一致。
+struct SearchDocRow: View {
+    let hit: DocSearchHit
     let keyword: String
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "bubble.left.and.text.bubble.right.fill")
-                .font(.body.weight(.medium))
-                .foregroundStyle(.orange)
-                .frame(width: 32, height: 32)
-                .background(.orange.opacity(0.12), in: .circle)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(post.title.highlighting(keyword))
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                (Text("\(post.authorName) · ") + Text(post.excerpt.highlighting(keyword)))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
+    private var tint: Color { hit.kind == .experience ? .orange : .green }
+    private var icon: String {
+        hit.kind == .experience ? "graduationcap.fill" : "book.closed.fill"
     }
-}
 
-/// 搜索结果行（生存手册）：手册图标 + 标题/摘要，关键词加粗。
-struct SearchHandbookRow: View {
-    let entry: HandbookEntry
-    let keyword: String
-
-    /// 摘要优先展示 subtitle；仅正文命中时展示正文片段，保证高亮可见。
-    private var snippet: String {
-        let key = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !key.isEmpty,
-           !SearchEngine.matches(entry.title, key),
-           !SearchEngine.matches(entry.subtitle, key),
-           SearchEngine.matches(entry.body, key) {
-            return entry.body
-        }
-        return entry.subtitle
+    /// 摘要优先用 `description`；命中的是正文某个小节时展示锚点文字，
+    /// 让用户知道「命中在文章的哪一段」，点进去能直接定位。
+    private var snippet: String? {
+        if let anchor = hit.anchor, !anchor.text.isEmpty { return anchor.text }
+        if let description = hit.description, !description.isEmpty { return description }
+        return nil
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "book.closed.fill")
+            Image(systemName: icon)
                 .font(.body.weight(.medium))
-                .foregroundStyle(.green)
+                .foregroundStyle(tint)
                 .frame(width: 32, height: 32)
-                .background(.green.opacity(0.12), in: .circle)
+                .background(tint.opacity(0.12), in: .circle)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.title.highlighting(keyword))
+                Text(hit.title.highlighting(keyword))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                Text(snippet.highlighting(keyword))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let snippet {
+                    Text(snippet.highlighting(keyword))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
     }

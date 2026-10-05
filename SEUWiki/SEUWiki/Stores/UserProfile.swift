@@ -19,8 +19,13 @@ final class UserProfile {
     var grade = UserProfile.defaultGrade { didSet { persist(grade, for: .grade) } }
     var interests = UserProfile.defaultInterests { didSet { persist(interests, for: .interests) } }
 
-    var reminders: [CampusReminder] = MockData.reminders { didSet { persist(reminders, for: .reminders) } }
-    var courses: [Course] = MockData.courses { didSet { persist(courses, for: .courses) } }
+    /// 提醒与课表默认**为空**。
+    ///
+    /// 早期版本默认塞了「信号与系统」课程和「推免申请材料提交截止」提醒，于是首次启动的
+    /// 用户一打开就看到自己从没添加过的内容，还被当成真实数据写进了 UserDefaults。
+    /// 演示数据只能在 `#if DEBUG` 下由 Preview 注入，不能进生产默认值。
+    var reminders: [CampusReminder] = [] { didSet { persist(reminders, for: .reminders) } }
+    var courses: [Course] = [] { didSet { persist(courses, for: .courses) } }
     var followedTopicIDs = UserProfile.defaultFollowedTopicIDs { didSet { persist(followedTopicIDs, for: .followedTopicIDs) } }
     var bookmarkedPostIDs: Set<String> = [] { didSet { persist(bookmarkedPostIDs, for: .bookmarkedPostIDs) } }
 
@@ -56,7 +61,27 @@ final class UserProfile {
             }
     }
 
-    /// 重置为默认：清空持久化 key 并恢复 MockData 初始值（didSet 会重新落盘）。
+    /// for-you 的画像参数（后端 `parseForYouProfile` 读的就是这四个）。
+    ///
+    /// 集中在这里而不是散在请求构造里，是为了让 [profileFingerprint] 与实际发出去的
+    /// 参数**永远一致** —— 两者一旦分叉，就会出现「改了画像但 cursor 判定没变」。
+    var forYouParams: [(String, String)] {
+        var params: [(String, String)] = []
+        if !college.isEmpty { params.append(("college", college)) }
+        if !degree.isEmpty { params.append(("degree", degree)) }
+        if !grade.isEmpty { params.append(("grade", grade)) }
+        if !interests.isEmpty { params.append(("interests", interests.joined(separator: ","))) }
+        return params
+    }
+
+    /// 画像指纹。后端把画像摘要编进 for-you 的 cursor（`foryou.ts`），
+    /// 画像一变旧 cursor 就作废并返回 400 `invalid_cursor`。
+    /// 用这个字符串当分页缓存的 key，画像一变自然换一个 key，旧 cursor 不会被误用。
+    var profileFingerprint: String {
+        forYouParams.map { "\($0.0)=\($0.1)" }.joined(separator: "&")
+    }
+
+    /// 重置为默认：清空持久化 key 并恢复默认值（didSet 会重新落盘）。
     func resetToDefaults() {
         ProfileStorage.reset(defaults: defaults)
         ProfileStorage.markInitialized(defaults: defaults)
@@ -64,8 +89,8 @@ final class UserProfile {
         degree = UserProfile.defaultDegree
         grade = UserProfile.defaultGrade
         interests = UserProfile.defaultInterests
-        reminders = MockData.reminders
-        courses = MockData.courses
+        reminders = []
+        courses = []
         followedTopicIDs = UserProfile.defaultFollowedTopicIDs
         bookmarkedPostIDs = []
     }

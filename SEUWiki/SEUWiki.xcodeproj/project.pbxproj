@@ -6,9 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-/* End PBXBuildFile section */
-
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 		A1000000000000000000A2 /* Exceptions for "SEUWiki" folder in "SEUWiki" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -52,7 +49,6 @@
 		A1000000000000000000C2 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1000000000000000000C3 /* SEUWiki.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -79,7 +75,6 @@
 			packageProductDependencies = (
 			);
 			productName = SEUWiki;
-			productReference = A1000000000000000000C3 /* SEUWiki.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -334,20 +329,20 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1000000000000000000E2 /* Build configuration list for PBXProject "SEUWiki" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1000000000000000000F1 /* Debug */,
-				A1000000000000000000F2 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A1000000000000000000D2 /* Build configuration list for PBXNativeTarget "SEUWiki" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1000000000000000000F3 /* Debug */,
 				A1000000000000000000F4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000000000000000000E2 /* Build configuration list for PBXProject "SEUWiki" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000F1 /* Debug */,
+				A1000000000000000000F2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
