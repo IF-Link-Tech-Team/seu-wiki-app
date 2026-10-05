@@ -7,8 +7,10 @@ struct AuthConfig: Sendable {
     var issuer = URL(string: "https://auth.iflink.tech/oidc")!
 
     /// Logto 控制台注册的 **Native** 应用 ID（public client，无 secret）。
-    /// 尚未注册，占位期间 `isConfigured == false`，登录入口优雅降级。
-    var clientID = "YOUR_LOGTO_NATIVE_APP_ID"
+    /// 对应控制台应用「SEU Wiki Android」（2026-10-05 注册，Native App 类型）。
+    /// 与 Android 端共用同一个应用：两端都是 native 客户端，回调 scheme 同为
+    /// `tech.iflink.seuwiki`，不必再注册一个 iOS 专属应用。
+    var clientID = "yb6csafyv7tviokwbbu2w"
 
     /// 回调 URL。scheme 已在 Info.plist 的 CFBundleURLTypes 注册。
     var redirectURI = "tech.iflink.seuwiki://callback"
@@ -18,9 +20,12 @@ struct AuthConfig: Sendable {
     /// 社区角色映射静默降级）；`offline_access` 换取 refresh token。
     var scopes = ["openid", "profile", "email", "roles", "offline_access"]
 
-    /// API resource：配置后 Logto 签发 JWT access token（后端 JWKS 本地校验）；
-    /// 置 nil 则签发 opaque token（后端走 UserInfo 校验）。两种后端都接受。
-    var resource: String? = "https://accounts.iflink.tech/api"
+    /// API resource：**留空**（nil），Logto 签发 opaque access token，后端经 UserInfo 校验。
+    ///
+    /// 与 IF.Link App 的生产实况一致，且 Logto 控制台的 Native 应用页本就没有该字段。
+    /// 切勿改成非空：非空会让 Logto 签发 JWT，而 Android 端发的是 opaque token，
+    /// 两端 token 形态不一致，后端校验路径也会分叉。
+    var resource: String? = nil
 
     var authorizationEndpoint: URL { issuer.appending(path: "auth") }
     var tokenEndpoint: URL { issuer.appending(path: "token") }
