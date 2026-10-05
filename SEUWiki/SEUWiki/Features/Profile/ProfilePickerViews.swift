@@ -34,9 +34,24 @@ struct ProfileSinglePicker: View {
     @Binding var selection: String
 
     @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    /// 超过这个数量才给搜索框。
+    ///
+    /// HIG 建议长列表配搜索，但学段只有 3 项、年级 13 项 —— 给它们挂搜索框只会
+    /// 凭空多一个用不上的控件。学院 28 项才是真正需要搜索的那一个。
+    private static let searchThreshold = 20
+
+    private var isSearchable: Bool { options.count >= Self.searchThreshold }
+
+    private var filtered: [String] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard isSearchable, !q.isEmpty else { return options }
+        return options.filter { $0.localizedCaseInsensitiveContains(q) }
+    }
 
     var body: some View {
-        List(options, id: \.self) { option in
+        List(filtered, id: \.self) { option in
             Button {
                 selection = option
                 dismiss()
@@ -56,6 +71,30 @@ struct ProfileSinglePicker: View {
             .buttonStyle(.plain)
         }
         .navigationTitle(title)
+        // 搜索结果为空时给一句说明，别让用户对着一张白列表怀疑 App 坏了。
+        .overlay {
+            if filtered.isEmpty {
+                ContentUnavailableView.search(text: query)
+            }
+        }
+        .modifier(SearchableIf(enabled: isSearchable, text: $query))
+    }
+}
+
+/// 只在需要时挂 `.searchable`。
+///
+/// 这个修饰符不能简单地写成 `if` 包在 body 里 —— `.searchable` 要作用在导航容器
+/// 的内容上，条件化之后得靠 ViewModifier 把它送到正确的位置。
+private struct SearchableIf: ViewModifier {
+    let enabled: Bool
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.searchable(text: $text, prompt: "搜索")
+        } else {
+            content
+        }
     }
 }
 

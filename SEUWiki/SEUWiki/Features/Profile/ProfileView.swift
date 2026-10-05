@@ -1,5 +1,26 @@
 import SwiftUI
 
+/// Debug 专用：`-uipicker college|degree|grade` 冷启动直接进对应的选择器。
+///
+/// 本机没有合成点击能力（`Simulator.app` 不在 Xcode 包内、无 idb），个人页又是
+/// sheet 而不是 tab，没法像 `-uitab` 那样直达。学院选择器这次加了搜索框，
+/// 不截图就没法验收它到底出没出来。
+enum PersonaPickerField: String, Hashable, Identifiable {
+    case college, degree, grade
+
+    var id: String { rawValue }
+
+    static func fromLaunchArguments() -> PersonaPickerField? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-uipicker"), index + 1 < args.count else { return nil }
+        return PersonaPickerField(rawValue: args[index + 1])
+        #else
+        return nil
+        #endif
+    }
+}
+
 /// 个人页面与设置：以 sheet 从各 Tab 右上角弹出。
 /// 登录走 IF.Link 生态自部署 Logto（auth.iflink.tech），OIDC 授权码 + PKCE。
 ///
@@ -14,6 +35,7 @@ struct ProfileView: View {
     /// 拿的必须是个人页这一份，否则登录态会被分裂成两份。
     @State private var auth = AuthStore.shared
     @State private var showsLogin = false
+    @State private var debugPicker = PersonaPickerField.fromLaunchArguments()
 
     var body: some View {
         NavigationStack {
@@ -55,6 +77,9 @@ struct ProfileView: View {
             .navigationDestination(isPresented: $showsLogin) {
                 // 显式传 auth，不靠 environment 传播（原因见 LoginView 的注释）。
                 LoginView(auth: auth)
+            }
+            .navigationDestination(item: $debugPicker) { field in
+                DebugPickerDestination(field: field)
             }
             .appNavigationDestinations()
             .toolbar {
@@ -141,9 +166,27 @@ private struct AccountHeaderSection: View {
     }
 }
 
-/// 「我的画像」：学院 / 学段 / 年级 / 兴趣，登录与否均可编辑（对应 for-you 画像参数）。
-private struct PersonaSection: View {
+/// `-uipicker` 的落点。复用真实的 [ProfileSinglePicker]，不另写一份，
+/// 否则截图验的就不是线上那段代码了。
+private struct DebugPickerDestination: View {
+    let field: PersonaPickerField
     @Environment(UserProfile.self) private var profile
+
+    var body: some View {
+        @Bindable var profile = profile
+        switch field {
+        case .college:
+            ProfileSinglePicker(title: "学院", options: PersonaOptions.colleges, selection: $profile.college)
+        case .degree:
+            ProfileSinglePicker(title: "学段", options: PersonaOptions.degrees, selection: $profile.degree)
+        case .grade:
+            ProfileSinglePicker(title: "年级", options: PersonaOptions.grades, selection: $profile.grade)
+        }
+    }
+}
+
+/// 「我的画像」：学院 / 学段 / 年级 / 兴趣，登录与否均可编辑（对应 for-you 画像参数）。
+private struct PersonaSection: View {    @Environment(UserProfile.self) private var profile
 
     var body: some View {
         @Bindable var profile = profile

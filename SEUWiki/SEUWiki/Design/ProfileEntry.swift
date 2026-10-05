@@ -23,5 +23,14 @@ extension View {
             .sheet(isPresented: isPresented) {
                 ProfileView()
             }
+            .onAppear {
+                // Debug 专用：`-uipicker college` 冷启动直接弹个人页并进选择器。
+                // 个人页是 sheet，本机又没有合成点击能力，不这么做就验不到。
+                #if DEBUG
+                if PersonaPickerField.fromLaunchArguments() != nil {
+                    isPresented.wrappedValue = true
+                }
+                #endif
+            }
     }
 }
