@@ -23,7 +23,8 @@ struct ConsoleBar<Item: Identifiable & Hashable>: View {
                             .font(.subheadline.weight(isSelected ? .semibold : .regular))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .foregroundStyle(isSelected ? .white : .primary)
+                            // 深色模式下 accent 是亮绿，白字只有 1.83:1；accentInk 切到深绿是 7.08:1。
+                            .foregroundStyle(isSelected ? Color.accentInk : .primary)
                             .background {
                                 if isSelected {
                                     Capsule()
@@ -37,6 +38,8 @@ struct ConsoleBar<Item: Identifiable & Hashable>: View {
                     }
                     .buttonStyle(.plain)
                     .sensoryFeedback(.selection, trigger: selection)
+                    // 读屏必须知道「当前选中的是哪个」，否则七个胶囊会被读成一串名字。
+                    .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
                 }
             }
             .padding(.horizontal)

@@ -26,12 +26,21 @@ struct SearchHomeView: View {
             }
             .groupedBackground()
             .navigationTitle("搜索")
-            // 不指定 placement：iOS 26 里把搜索框钉在导航栏抽屉上会**失去**底部
-            // 玻璃 tab 栏随滚动的变形/最小化动画，视觉上像是两个系统打架。
+            // `displayMode: .always` 是**故意**保留的。
+            //
+            // 既有审查（I-3）建议去掉 placement，理由是「钉在顶部会失去 tab 栏的变形动画」。
+            // 实测否掉了这条建议：在 iOS 27（当前模拟器系统版本，工程目标仍是 26.0）上，
+            // 不指定 placement 时系统会把搜索框收进抽屉，**进入搜索 tab 只看到大标题和
+            // scope 行，搜索框完全不可见**，必须下拉才拉出来。对一个独立的搜索 tab 来说
+            // 「看不见搜索框」是功能问题，「少一个动效」是观感问题，取舍很清楚。
+            // `.searchPresentationToolbarBehavior(.avoidHidingContent)` 则让搜索时
+            // tab 栏不消失，保住那部分体验。
             .searchable(
                 text: $keyword,
+                placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "搜索通知、经验、手册"
             )
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .onChange(of: trimmedKeyword, initial: true) { _, newValue in
                 store.search(keyword: newValue)
             }

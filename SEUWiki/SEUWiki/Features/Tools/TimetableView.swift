@@ -271,7 +271,7 @@ private struct WeekdayBar: View {
                                 .font(.subheadline.weight(isSelected ? .semibold : .regular))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .foregroundStyle(isSelected ? .white : .primary)
+                                .foregroundStyle(isSelected ? Color.accentInk : .primary)
                                 .background {
                                     if isSelected {
                                         Capsule()

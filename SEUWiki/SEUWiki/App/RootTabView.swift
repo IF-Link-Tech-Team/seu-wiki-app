@@ -13,11 +13,36 @@ enum AppTab: Hashable {
 /// 绑定了 `selection` 才能支持**跨 tab 跳转**：主页的「下一节课」卡要跳到工具页的
 /// 课表、「提醒」卡要跳到个人页。早期版本没有 selection，两张卡也点不动。
 struct RootTabView: View {
-    @State private var selection: AppTab = .home
+    @State private var selection: AppTab
     /// 跨 tab 跳转的待办目标。各 tab 根部用 `.onChange` 消费它并清空。
     @State private var pendingToolsRoute: ToolRoute?
     @State private var showsProfile = false
     @State private var showsReminders = false
+
+    /// Debug 专用：`-uitab search` 之类的启动参数可以把 App 直接开在指定 tab。
+    ///
+    /// 存在的理由是**验收**：模拟器是无头跑的，合成点击不可用，没有这个开关就没法
+    /// 截到非首页的界面做逐屏核对（深浅色、无障碍、布局都靠它）。Release 构建里
+    /// 整个分支不存在。
+    init(initialTab: AppTab = .home) {
+        _selection = State(initialValue: initialTab)
+    }
+
+    static var launchTab: AppTab {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-uitab"), index + 1 < args.count else { return .home }
+        switch args[index + 1] {
+        case "feed": return .feed
+        case "experience": return .experience
+        case "tools": return .tools
+        case "search": return .search
+        default: return .home
+        }
+        #else
+        return .home
+        #endif
+    }
 
     var body: some View {
         TabView(selection: $selection) {

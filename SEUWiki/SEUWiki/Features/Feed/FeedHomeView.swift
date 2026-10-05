@@ -209,7 +209,7 @@ private struct ForYouCard: View {
 
                 Text(item.sourceName)
                 Text("·")
-                Text(item.publishedAt, style: .relative)
+                RelativeTimeText(date: item.publishedAt)
 
                 Spacer(minLength: 4)
 

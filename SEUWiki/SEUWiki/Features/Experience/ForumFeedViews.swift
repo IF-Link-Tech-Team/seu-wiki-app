@@ -237,7 +237,7 @@ struct ForumTopicsSquareView: View {
                                     selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color(.tertiarySystemFill)),
                                     in: .capsule
                                 )
-                                .foregroundStyle(selected ? Color.white : Color.primary)
+                                .foregroundStyle(selected ? Color.accentInk : Color.primary)
                         }
                         .buttonStyle(.plain)
                     }

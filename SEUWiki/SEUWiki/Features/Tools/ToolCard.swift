@@ -86,28 +86,10 @@ struct ToolCard: View {
 enum Contrast {
     /// 在给定背景上选一个达标的文字色。
     static func foreground(on color: Color) -> Color {
-        let light = Color.white
-        let dark = Color(red: 0.06, green: 0.08, blue: 0.07)
-        let onLight = ratio(luminance(of: light), luminance(of: color))
-        let onDark = ratio(luminance(of: dark), luminance(of: color))
-        // 都达标时选对比度更高的；都不达标时仍选高的（并由调用方另行处理）。
-        if onLight >= 4.5, onDark >= 4.5 { return onLight > onDark ? light : dark }
-        return onLight > onDark ? light : dark
-    }
-
-    /// WCAG 相对亮度。
-    static func luminance(of color: Color) -> Double {
         let (r, g, b) = resolve(color)
-        func channel(_ c: Double) -> Double {
-            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-    }
-
-    /// 对比度，(lighter + 0.05) / (darker + 0.05)。
-    static func ratio(_ a: Double, _ b: Double) -> Double {
-        let lighter = max(a, b), darker = min(a, b)
-        return (lighter + 0.05) / (darker + 0.05)
+        let onLight = Color.WCAG.ratio(red1: 1, green1: 1, blue1: 1, red2: r, green2: g, blue2: b)
+        let onDark = Color.WCAG.ratio(red1: 0.06, green1: 0.08, blue1: 0.07, red2: r, green2: g, blue2: b)
+        return onLight > onDark ? .white : Color(red: 0.06, green: 0.08, blue: 0.07)
     }
 
     /// 把 SwiftUI Color 拆成 sRGB 分量（0...1）。

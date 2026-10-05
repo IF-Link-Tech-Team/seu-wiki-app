@@ -93,7 +93,7 @@
 				};
 			};
 			buildConfigurationList = A1000000000000000000E2 /* Build configuration list for PBXProject "SEUWiki" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,

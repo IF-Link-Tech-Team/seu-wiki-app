@@ -41,14 +41,10 @@ private struct HomeFeedRow: View {
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                 HStack(spacing: 6) {
-                    Text(item.sourceName)
-                    if let first = item.matchReasons.first {
-                        Text("·")
-                        Text(first)
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    Spacer()
-                    Text(item.publishedAt, style: .relative)
+                    metaLabel
+                    Spacer(minLength: 4)
+                    RelativeTimeText(date: item.publishedAt)
+                        .fixedSize()
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -56,6 +52,35 @@ private struct HomeFeedRow: View {
         }
         .padding(14)
         .contentShape(.rect)
+    }
+
+    /// 来源与命中理由常常是同一句话的不同长度版本
+    /// （来源名多为「学院名 + 部门名」，命中理由就是学院名），两个都显示会挤成两行。
+    /// 这里只保留信息量更大的那个，另一个完全不出现。
+    @ViewBuilder
+    private var metaLabel: some View {
+        let reason = item.matchReasons.first
+        if let reason, !reason.isEmpty {
+            if item.sourceName.contains(reason) {
+                Text(reason)
+                    .lineLimit(1)
+                    .foregroundStyle(Color.accentColor)
+            } else if reason.contains(item.sourceName) {
+                Text(reason)
+                    .lineLimit(1)
+                    .foregroundStyle(Color.accentColor)
+            } else {
+                Text(item.sourceName)
+                    .lineLimit(1)
+                Text("·")
+                Text(reason)
+                    .lineLimit(1)
+                    .foregroundStyle(Color.accentColor)
+            }
+        } else {
+            Text(item.sourceName)
+                .lineLimit(1)
+        }
     }
 }
 
@@ -68,13 +93,12 @@ struct HomeFeedListView: View {
             NavigationLink(value: item) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title).font(.subheadline.weight(.medium))
-                    Text("\(item.sourceName) · \(item.publishedAt, style: .relative)")
+                    HighlightedText(text: "\(item.sourceName) · \(TimeFormat.relative(item.publishedAt))", keyword: "")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
         }
         .navigationTitle("与我有关")
-        .appNavigationDestinations()
     }
 }

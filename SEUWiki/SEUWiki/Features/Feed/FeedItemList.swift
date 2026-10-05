@@ -79,7 +79,7 @@ private struct FeedItemRow: View {
                 HStack(spacing: 6) {
                     Text(item.sourceName)
                     Text("·")
-                    Text(item.publishedAt, style: .relative)
+                    RelativeTimeText(date: item.publishedAt)
                     if item.isSelected {
                         Text("·")
                         Label("精选", systemImage: "star.fill")
