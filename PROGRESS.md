@@ -2,8 +2,8 @@
 
 ## 当前状态（2026-10-06）
 
-iOS 端 14 个 commit，双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
-自检 61/61 通过，模拟器逐屏截图验收（浅色 + 深色）。
+iOS 端 15 个 commit，双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
+自检 128/128 通过，模拟器逐屏截图验收（浅色 + 深色）。
 
 ## 已完成
 
@@ -59,7 +59,7 @@ iOS 端 14 个 commit，双端已接真实后端，生产路径**无任何 Mock 
 
 ### 自检套件
 
-`Services/SelfCheck.swift`，61 条断言，DEBUG 启动自动跑。**它抓到了三个代码审查看不出的真 bug**：
+`Services/SelfCheck.swift`，128 条断言，DEBUG 启动自动跑，结果同时写到 App 容器 `Documents/selfcheck.txt`（本机 `NSLog` 取不出来，详见 README）。**它抓到了三个代码审查看不出的真 bug**：
 
 | 断言组 | 抓到的 bug |
 |---|---|
@@ -68,6 +68,7 @@ iOS 端 14 个 commit，双端已接真实后端，生产路径**无任何 Mock 
 | `checkDocDetailContract` | 后端字段是 `headings`/`depth`，代码写成 `outline`/`level` → **目录永远空白**（字段名写错不抛错，只是解成 nil） |
 | `checkReminderNotification` | `userInfo` 的 key 写错（如 `feedId` vs `feedItemID`）→ 点了通知静默什么都不做；占位条目一旦编造标题 → 通知深链进来显示一条对不上的假资讯。两者编译期与运行期都无提示 |
 | `checkReminderFireDate` | 提醒时间必须是 09:00（不是截止时刻本身）；往前推天数必须走 `Calendar.date(byAdding:)`，用「减 86400 秒」在夏令时那天会差一小时 |
+| `checkSFSymbols` | 66 个 SF 名逐个验 `UIImage(systemName:)`：名字不存在时**不报错、只画空白**，构建照样全绿。补这条是因为安卓端在模拟器截图里发现收藏按钮渲染成了九宫格 |
 
 ## 已知待办
 

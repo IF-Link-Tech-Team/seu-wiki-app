@@ -49,7 +49,13 @@ xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath /tmp/dd build
 ```
 
-启动即跑自检（DEBUG），日志里应见 `[SelfCheck] 全部 61 项通过`。
+启动即跑自检（DEBUG）。这台机器上 `NSLog` 取不出来（`log show` 匹配不到，`simctl launch --console-pty` 也接不到），所以自检会把报告写到 App 容器里，直接读文件确认：
+
+```bash
+DC=$(xcrun simctl get_app_container booted tech.iflink.seuwiki data)
+head -1 "$DC/Documents/selfcheck.txt"   # 例如 128/128 通过
+grep '^FAIL' "$DC/Documents/selfcheck.txt"
+```
 
 无头模拟器验收用的启动参数（仅 DEBUG，Release 不含）：
 
@@ -73,6 +79,8 @@ SEUWiki/SEUWiki/
 
 ## 自检套件
 
-`Services/SelfCheck.swift` 在 DEBUG 启动时自动执行 61 条断言，覆盖：日期解析、相对时间、绩点计算、分页去重、slug 编码、URL 组装、后端字段契约、画像指纹、颜色对比度、提醒徽标、提醒通知契约（`userInfo` 的 key、触发时刻算法）、持久化容错。
+`Services/SelfCheck.swift` 在 DEBUG 启动时自动执行 128 条断言，覆盖：日期解析、相对时间、绩点计算、分页去重、slug 编码、URL 组装、后端字段契约、画像指纹、颜色对比度、提醒徽标、提醒通知契约（`userInfo` 的 key、触发时刻算法）、SF Symbol 有效性、持久化容错。
+
+其中 66 条是 SF Symbol 校验：`Image(systemName:)` 拿到不存在的名字**不报错、只画空白**，构建照样全绿。`checkSFSymbols()` 把工程用到的每个 SF 名用 `UIImage(systemName:)` 验一遍 —— 这条是安卓端在模拟器截图里发现「收藏按钮渲染成九宫格」之后补的，安卓那边兜底成了一个语义完全不相干的图形，iOS 这边兜底是空白。清单是照源码全量扫出来的，**新增图标要往 `usedSFSymbols` 里加一行**。
 
 它抓到过五个真实 bug（`Double("inf")` 返回 `inf` 而非 nil、`%25` 双重编码、目录字段名写成 `outline` 而后端是 `headings`、`userInfo` key 写错导致点通知静默失效、夏令时用减 86400 秒会让提醒差一小时）——**这些都是代码审查看不出来、只有断言能抓住的**。新增这类修复时请一并补断言。
