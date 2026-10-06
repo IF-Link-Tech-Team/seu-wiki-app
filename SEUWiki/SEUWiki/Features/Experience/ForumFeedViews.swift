@@ -271,8 +271,9 @@ struct ForumTopicsSquareView: View {
 
 /// 经验 · 关注：论坛 UGC 尚未接通，如实说明而不是编造帖子。
 ///
-/// `seu-wiki-forum` 仓库里只有 Supabase migration，没有任何可供客户端调用的 HTTP 路由，
-/// 所以「关注的话题的新帖」在服务端根本不存在。宁可空着并说清楚，也不要拿假帖子填。
+/// `seu-wiki-forum` 的 HTTP API 已就绪，但本 App 尚未接入论坛客户端，
+/// 服务端的「关注」关系也还没有话题维度，所以「关注的话题的新帖」在服务端不存在。
+/// 宁可空着并说清楚，也不要拿假帖子填。
 struct ForumFollowingFeedView: View {
     @Environment(UserProfile.self) private var profile
     let onBrowseTopics: () -> Void

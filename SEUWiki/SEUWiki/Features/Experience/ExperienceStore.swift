@@ -3,9 +3,10 @@ import Foundation
 /// 「经验」模块的数据仓库：生存手册目录 + 经验长文索引。
 ///
 /// 两个信源都来自 `seu-wiki-v2` 的 `/api/site/docs/*`（真实内容）。
-/// 论坛 UGC（发帖、点赞、评论、关注）**尚未接通** —— `seu-wiki-forum` 仓库里没有任何
-/// HTTP 路由，只有 Supabase migration，所以客户端无从调用。相关入口一律显示
-/// 「即将上线」并去掉占位数字，不做假内容。
+/// 论坛 UGC（发帖、点赞、评论、关注）**尚未接通** —— `seu-wiki-forum` 已有完整
+/// HTTP API（34 个路由）并已部署到 iflink-prod，但本 App 还没有论坛客户端：
+/// 公网域名与 Logto 应用注册未完成，「经验」模块当前接的是 seu-wiki-v2 的
+/// 文档接口。相关入口一律显示「即将上线」并去掉占位数字，不做假内容。
 @Observable
 @MainActor
 final class ExperienceStore {

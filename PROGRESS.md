@@ -76,7 +76,7 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 - [ ] **登录无法端到端验证**：Logto 授权码 + PKCE 需要交互式浏览器 + 真实凭据。S-1/S-2/S-6/S-7 是靠代码审查 + 对真实 token/revocation 端点 `curl` 验证的，**不是**真的登进去过
 - [ ] **通知授权弹窗与横幅未在本机实跑**：本机 `Simulator.app` 不在 Xcode 包内，无合成点击能力；`simctl privacy` 不含 notifications 服务、授权状态也不在可写的 TCC 里。因此「授权弹窗 → 真实排程 → 到点弹横幅 → 点开」这段**没有**在真机/模拟器上看过。
       已验证的部分：排程算法与 `userInfo` 契约有自检覆盖；深链后半段（`RootTabView` → `FeedHomeView` → 详情页）用 DEBUG 启动参数 `-uipush <真实id>` 冷启动实测直达并截图。`-uipush` 走的是与系统回调**同一个** `handle(userInfo:)` 入口，Release 二进制里不存在
-- [ ] **论坛 UGC 不接通**：`seu-wiki-forum` 无任何 HTTP API 路由（仅 Supabase migration）。端内「关注」页如实说明「社区功能即将上线」，不展示编造内容
+- [ ] **论坛 UGC 未接入 App**：`seu-wiki-forum` 已有完整 HTTP API（34 个路由）并已部署到 iflink-prod，公网域名与 Logto 应用注册待完成；App 侧尚未编写论坛客户端。端内「关注」页如实说明「社区功能即将上线」，不展示编造内容
 - [ ] 后端补齐 `campus` 字段后，移除 `FeedFilter.supportsAudienceFilter = false` 即可开放学院/学段筛选
 - [ ] APNs 推送（seu-wiki-v2 无 push 通道）
 - [ ] 启动屏品牌化（当前系统默认）

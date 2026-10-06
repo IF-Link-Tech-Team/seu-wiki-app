@@ -284,7 +284,7 @@ private struct ReminderRow: View {
 
 /// 「我的收藏」：收藏的手册/经验长文。
 ///
-/// 收藏对象从「论坛帖子 id」换成「长文 slug」：论坛后端至今没有可调用的 HTTP 路由，
+/// 收藏对象从「论坛帖子 id」换成「长文 slug」：本 App 尚未接入论坛 API，
 /// 收藏帖子存下来也永远点不开。现在收藏的是 `/api/site/docs/*` 的真实内容，
 /// 在手册/经验详情页收藏，这里能真正打开。
 private struct BookmarksSection: View {

@@ -4,7 +4,8 @@ import SwiftUI
 ///
 /// 这里原来叫「论坛新帖」，内容是 `MockData.forumPosts` —— 虚构作者「林晚舟 ·
 /// 保研至清华大学」、虚构的 1893 赞 / 342 评论，界面上没有任何标记说明是编造的。
-/// 论坛后端 `seu-wiki-forum` 至今没有任何 HTTP 路由，客户端拿不到真实帖子，
+/// 论坛后端 `seu-wiki-forum` 有完整 HTTP API，但本 App 还没有论坛客户端，
+/// 拿不到真实帖子，
 /// 所以把这一块换成**真实可用的经验长文**，并如实标注社区功能的状态。
 struct HomeForumSection: View {
     @Environment(ExperienceStore.self) private var store: ExperienceStore?
