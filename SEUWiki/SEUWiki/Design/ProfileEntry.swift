@@ -24,10 +24,12 @@ extension View {
                 ProfileView()
             }
             .onAppear {
-                // Debug 专用：`-uipicker college` 冷启动直接弹个人页并进选择器。
-                // 个人页是 sheet，本机又没有合成点击能力，不这么做就验不到。
+                // Debug 专用：`-uipicker college` 冷启动直接弹个人页并进选择器；
+                // `-uiprofile` 只弹个人页。个人页是 sheet，本机又没有合成点击能力，
+                // 不这么做就验不到。
                 #if DEBUG
-                if PersonaPickerField.fromLaunchArguments() != nil {
+                if PersonaPickerField.fromLaunchArguments() != nil
+                    || ProcessInfo.processInfo.arguments.contains("-uiprofile") {
                     isPresented.wrappedValue = true
                 }
                 #endif

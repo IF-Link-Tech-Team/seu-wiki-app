@@ -27,6 +27,7 @@ struct SEUWikiApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var profile = UserProfile()
     @State private var feedStore = FeedStore()
+    @State private var forumStore = ForumStore()
     /// 通知点击的下一步去向。`RootTabView` 观察它并清空。
     @State private var notifications = NotificationCenterDelegate.shared
     /// 外观偏好存在 AppStorage，由这里读出来应用到整棵视图树。
@@ -50,6 +51,7 @@ struct SEUWikiApp: App {
             )
                 .environment(profile)
                 .environment(feedStore)
+                .environment(forumStore)
                 .preferredColorScheme(appearance.colorScheme)
                 .onOpenURL { url in
                     #if DEBUG

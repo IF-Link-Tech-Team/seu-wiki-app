@@ -75,6 +75,26 @@ struct RootTabView: View {
         #endif
     }
 
+    /// Debug 专用：`-uiconsole following|handbook` 把经验 tab 直接开在指定 console。
+    static var launchExperienceConsole: ForumFeedTab {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-uiconsole"), index + 1 < args.count else { return .hot }
+        return ForumFeedTab(rawValue: args[index + 1]) ?? .hot
+        #else
+        return .hot
+        #endif
+    }
+
+    /// Debug 专用：`-uicomposer` 冷启动直接弹发帖编辑器（未登录时是登录引导）。
+    static var launchShowsComposer: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-uicomposer")
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
         TabView(selection: $selection) {
             Tab("主页", systemImage: "house", value: .home) {
@@ -93,7 +113,10 @@ struct RootTabView: View {
                 FeedHomeView(pendingItemID: $pendingFeedItemID)
             }
             Tab("经验", systemImage: "bubble.left.and.text.bubble.right", value: .experience) {
-                ExperienceHomeView()
+                ExperienceHomeView(
+                    initialTab: RootTabView.launchExperienceConsole,
+                    initiallyShowComposer: RootTabView.launchShowsComposer
+                )
             }
             Tab("工具", systemImage: "square.grid.2x2", value: .tools) {
                 ToolsHomeView(route: $pendingToolsRoute)
@@ -211,4 +234,5 @@ struct MyRemindersView: View {
     RootTabView()
         .environment(UserProfile())
         .environment(FeedStore())
+        .environment(ForumStore())
 }

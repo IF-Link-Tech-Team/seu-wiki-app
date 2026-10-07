@@ -45,7 +45,7 @@ struct GPACourse: Identifiable, Hashable, Codable {
     }
 }
 
-/// 五分制绩点换算。规则与 app 内手册条目「绩点计算规则」（MockData h2e2）一致：
+/// 五分制绩点换算。规则沿用原 app 内手册条目「绩点计算规则」的口径：
 /// 90–100 为 5.0，此后每 5 分一档递减 0.5，60 以下为 0。
 /// 未检索到东南大学官方公开的换算文件，页面脚注中已向用户标注该来源假设。
 enum GPAGradingScale {

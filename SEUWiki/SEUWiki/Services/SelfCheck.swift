@@ -43,6 +43,9 @@ enum SelfCheck {
         checkReminderNotification()
         checkReminderFireDate()
         checkSFSymbols()
+        checkForumTagCatalog()
+        checkForumDateParsing()
+        checkForumPostContract()
         checkPersistence()
         let snapshot = results
         let failed = snapshot.filter { !$0.passed }
@@ -384,19 +387,20 @@ enum SelfCheck {
     private static let usedSFSymbols = [
         "airplane", "arrow.triangle.branch", "bell", "bell.badge", "bell.fill", "bell.slash",
         "book", "book.closed", "book.closed.fill", "bookmark", "bookmark.fill",
-        "books.vertical", "books.vertical.fill", "briefcase",
+        "books.vertical", "books.vertical.fill", "briefcase", "bubble.left",
         "bubble.left.and.text.bubble.right", "building.2", "bus",
         "calendar.badge.checkmark", "calendar.day.timeline.left", "checklist", "checkmark",
         "chevron.right", "circle.lefthalf.filled", "clock.badge.exclamationmark", "creditcard",
-        "doc.text", "exclamationmark.triangle", "figure.walk.arrival", "flame.fill", "flask",
+        "doc.text", "exclamationmark.triangle", "eye", "figure.walk.arrival", "flame.fill", "flask",
         "graduationcap", "graduationcap.circle", "graduationcap.circle.fill", "graduationcap.fill",
-        "house", "info.circle", "leaf",
+        "heart", "heart.fill", "house", "info.circle", "leaf",
         "line.3.horizontal.decrease.circle", "line.3.horizontal.decrease.circle.fill",
         "link", "link.circle.fill", "list.bullet.indent", "lock.shield", "map", "mappin",
-        "newspaper", "pencil.and.list.clipboard", "percent", "person",
+        "newspaper", "paperplane.fill", "pencil.and.list.clipboard", "percent", "person",
         "person.2.badge.gearshape", "person.crop.circle", "person.crop.circle.fill",
-        "plus", "plus.circle.fill", "safari", "square.grid.2x2", "square.stack.3d.up.fill",
-        "star.fill", "text.book.closed", "tram", "trash", "trophy",
+        "photo", "pin.fill", "plus", "plus.circle.fill", "safari",
+        "square.and.pencil", "square.grid.2x2", "square.stack.3d.up.fill",
+        "star.fill", "tag", "text.book.closed", "tram", "trash", "trophy",
         "wifi.exclamationmark", "wifi.slash", "xmark.circle", "yensign.circle",
     ]
 
@@ -418,6 +422,130 @@ enum SelfCheck {
             expect("SF Symbol/\(name)", UIImage(systemName: name) != nil,
                    "在当前系统（iOS \(ProcessInfo.processInfo.operatingSystemVersionString)）上不存在，会渲染成空白")
         }
+    }
+
+    // MARK: - 论坛标签目录
+
+    /// 发帖与板块筛选的标签来自这份内嵌目录，它与论坛后端
+    /// `src/lib/tags/catalog.mjs` 是**同一份数据的两份拷贝**：后端目录变了而这里
+    /// 没跟上，用户就会发出一个后端拒收的标签（400）。结构完整性在这里钉住，
+    /// 与后端逐 slug 的对账只能人工做（目录变动频率很低）。
+    private static func checkForumTagCatalog() {
+        let topics = ForumTagCatalog.topics
+        expect("论坛标签/8 个主题", topics.count == 8, "实际 \(topics.count)")
+        let children = topics.flatMap(\.children)
+        expect("论坛标签/29 个子标签", children.count == 29, "实际 \(children.count)")
+
+        let allSlugs = ForumTagCatalog.allTags.map(\.slug)
+        expect("论坛标签/37 个 slug", allSlugs.count == 37, "实际 \(allSlugs.count)")
+        expect("论坛标签/slug 无重复", Set(allSlugs).count == allSlugs.count,
+               "重复：\(allSlugs.filter { s in allSlugs.filter { $0 == s }.count > 1 })")
+
+        // slug 会进 URL query 与后端校验正则，形态必须稳定。
+        let pattern = #"^[a-z0-9][a-z0-9-]{0,39}$"#
+        let invalid = allSlugs.filter { $0.range(of: pattern, options: .regularExpression) == nil }
+        expect("论坛标签/slug 形态合法", invalid.isEmpty, "非法：\(invalid)")
+
+        expect("论坛标签/中文名非空", ForumTagCatalog.allTags.allSatisfy { !$0.name.isEmpty })
+        expect("论坛标签/名称可查", ForumTagCatalog.name(for: "baoyan") == "保研")
+        expect("论坛标签/未知 slug 返回 nil", ForumTagCatalog.name(for: "not-a-tag") == nil)
+        expect("论坛标签/每帖上限 3", ForumTagCatalog.maxPostTags == 3)
+    }
+
+    // MARK: - 论坛日期解析
+
+    private static func checkForumDateParsing() {
+        // 论坛时间戳是 PostgREST 序列化的 timestamptz：**6 位微秒 + 数字时区**。
+        // DateFormatter 的 `.SSS` 只认 3 位毫秒，直接解析必失败 → 帖子的
+        // 时间与置顶标记会静默变 nil。`parseForum` 先截断再解析。
+        let micros = DateParser.parseForum("2026-10-07T04:47:20.123456+00:00")
+        expect("论坛日期/6 位微秒可解析", micros != nil)
+        expect("论坛日期/3 位毫秒可解析", DateParser.parseForum("2026-10-07T04:47:20.123+00:00") != nil)
+        expect("论坛日期/Z 结尾可解析", DateParser.parseForum("2026-10-07T04:47:20Z") != nil)
+        expect("论坛日期/nil 输入返回 nil", DateParser.parseForum(nil) == nil)
+        expect("论坛日期/非法输入返回 nil", DateParser.parseForum("not-a-date") == nil)
+    }
+
+    // MARK: - 论坛字段契约
+
+    /// 与 `checkDocDetailContract` 同理由：论坛 DTO 全是 snake_case + CodingKeys，
+    /// 字段名写错**不会报错**，只会静默解成 nil（作者名消失、计数归零）。
+    /// 这里拿一段按仓库路由代码构造的真实形态响应做解码断言。
+    private static func checkForumPostContract() {
+        let json = """
+        {
+          "id": "5f2c0a2e-0000-4000-8000-000000000001",
+          "title": "保研时间线复盘",
+          "content": "正文",
+          "post_type": "normal",
+          "created_at": "2026-10-07T04:47:20.123456+00:00",
+          "likes_count": 12,
+          "comments_count": 3,
+          "views_count": 45,
+          "pinned_at": "2026-10-07T05:00:00+00:00",
+          "author": {
+            "id": "u1",
+            "display_name": "林同学",
+            "username": "lin",
+            "avatar_url": "https://forum.seu.wiki/api/media/a.png"
+          },
+          "images": [{ "id": "i1", "asset_url": "/api/media/x.png", "mime_type": "image/png", "sort_order": 0 }],
+          "tags": [{ "id": "t1", "name": "保研", "slug": "baoyan" }],
+          "bookmarked": false
+        }
+        """
+        guard let data = json.data(using: .utf8),
+              let dto = try? JSONDecoder().decode(ForumPostDTO.self, from: data)
+        else {
+            expect("契约/forumPost 可解码", false, "字段名与后端不匹配")
+            return
+        }
+        let post = dto.post
+        expect("契约/帖子计数已解析", post.likesCount == 12 && post.commentsCount == 3 && post.viewsCount == 45,
+               "实际 \(post.likesCount)/\(post.commentsCount)/\(post.viewsCount)")
+        expect("契约/帖子作者已解析", post.author?.displayName == "林同学",
+               "实际 \(String(describing: post.author?.displayName))")
+        expect("契约/帖子图片相对路径已解析", post.imagePaths == ["/api/media/x.png"],
+               "实际 \(post.imagePaths)")
+        expect("契约/帖子标签已解析", post.tags.map(\.slug) == ["baoyan"])
+        expect("契约/帖子置顶时间已解析", post.isPinned)
+        expect("契约/帖子创建时间已解析（微秒）", post.createdAt != nil)
+        expect("契约/书签标记已解析", dto.bookmarked == false)
+
+        // 无标题是合法形态（后端 title 可空），卡片用正文节选兜底。
+        let noTitleJSON = """
+        { "id": "p2", "title": null, "content": "只有正文的帖子" }
+        """
+        if let data2 = noTitleJSON.data(using: .utf8),
+           let dto2 = try? JSONDecoder().decode(ForumPostDTO.self, from: data2) {
+            expect("契约/无标题帖子 headline 回退正文", dto2.post.headline == "只有正文的帖子",
+                   "实际 \(dto2.post.headline)")
+        } else {
+            expect("契约/无标题帖子可解码", false)
+        }
+
+        // 手册文章摘要的契约（板块列表与搜索命中共用）。
+        let articleJSON = """
+        {
+          "id": "a1",
+          "tag_slug": "baoyan",
+          "title": "推免政策解读",
+          "author_display": "编辑部",
+          "published_at": "2026-10-07T04:47:20.123456+00:00",
+          "source_post": { "id": "p1", "title": "原帖" }
+        }
+        """
+        guard let articleData = articleJSON.data(using: .utf8),
+              let articleDTO = try? JSONDecoder().decode(HandbookArticleSummaryDTO.self, from: articleData)
+        else {
+            expect("契约/手册文章摘要可解码", false, "字段名与后端不匹配")
+            return
+        }
+        let article = articleDTO.summary
+        expect("契约/手册文章字段已解析",
+               article.tagSlug == "baoyan" && article.authorDisplay == "编辑部" && article.sourcePost?.id == "p1",
+               "实际 \(article.tagSlug)/\(String(describing: article.authorDisplay))")
+        expect("契约/手册文章时间已解析（微秒）", article.publishedAt != nil)
     }
 
     // MARK: - 持久化

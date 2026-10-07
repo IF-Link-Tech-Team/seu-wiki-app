@@ -1,48 +1,70 @@
 import SwiftUI
 
-/// 主页「精选经验」：来自 `/api/site/docs/experience` 的真实长文。
+/// 主页「社区热议」：论坛热榜前 3 条（`GET /api/posts?sort=hot`，置顶优先）。
 ///
-/// 这里原来叫「论坛新帖」，内容是 `MockData.forumPosts` —— 虚构作者「林晚舟 ·
-/// 保研至清华大学」、虚构的 1893 赞 / 342 评论，界面上没有任何标记说明是编造的。
-/// 论坛后端 `seu-wiki-forum` 有完整 HTTP API，但本 App 还没有论坛客户端，
-/// 拿不到真实帖子，
-/// 所以把这一块换成**真实可用的经验长文**，并如实标注社区功能的状态。
+/// 这里原来叫「论坛新帖」，内容是 `MockData.forumPosts` —— 虚构作者、虚构的
+/// 上千赞。后来换成经验长文索引（`/api/site/docs/experience`）；经验 tab 论坛化后
+/// 该索引信源已移除，这一块回到它本来的名字，展示论坛的真实帖子。
+/// 加载失败/空列表时如实显示状态文案，不编内容。
 struct HomeForumSection: View {
-    @Environment(ExperienceStore.self) private var store: ExperienceStore?
+    @Environment(ForumStore.self) private var store
     /// 最多展示 3 条，bento 布局不铺满。
     let limit = 3
 
+    private var page: ForumStore.PostPageState { store.page(for: .hot) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HomeSectionHeader(title: "精选经验", destination: ExperienceListView())
+            HomeSectionHeader(title: "社区热议", destination: HomeForumFeedView())
 
             VStack(spacing: 0) {
-                if let items = store?.experience?.items, !items.isEmpty {
-                    ForEach(Array(items.prefix(limit).enumerated()), id: \.element.id) { index, item in
-                        NavigationLink(value: item.navigationValue) {
-                            HomeExperienceRow(item: item)
+                if page.unavailable {
+                    statusRow(icon: "person.2.badge.gearshape", tint: .orange,
+                              title: "社区功能即将上线",
+                              detail: "发帖、点赞、评论的服务端接口正在开发中。")
+                } else if let error = page.errorMessage, page.items.isEmpty {
+                    statusRow(icon: "wifi.exclamationmark", tint: .secondary,
+                              title: "社区内容加载失败", detail: error)
+                } else if page.items.isEmpty {
+                    if page.hasLoaded {
+                        statusRow(icon: "bubble.left.and.text.bubble.right", tint: .secondary,
+                                  title: "论坛刚开张",
+                                  detail: "还没有帖子，去「经验」页写下第一篇分享。")
+                    } else {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("正在加载社区热议…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                    }
+                } else {
+                    ForEach(Array(page.items.prefix(limit).enumerated()), id: \.element.id) { index, post in
+                        NavigationLink {
+                            ForumPostDetailView(postID: post.id, summary: post)
+                        } label: {
+                            HomePostRow(post: post)
                         }
                         .buttonStyle(.plain)
-                        if index < min(items.count, limit) - 1 {
+                        if index < min(page.items.count, limit) - 1 {
                             Divider().padding(.leading, 52)
                         }
                     }
-                } else {
-                    communityComingSoon
                 }
             }
             .cardStyle(padding: 0)
         }
-        .task { await store?.loadExperience() }
+        .task { await store.loadIfNeeded(.hot) }
     }
 
-    /// 经验长文还没加载出来（或加载失败）时，如实说明社区状态，不编内容。
-    private var communityComingSoon: some View {
+    private func statusRow(icon: String, tint: Color, title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("社区功能即将上线", systemImage: "person.2.badge.gearshape")
+            Label(title, systemImage: icon)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.orange)
-            Text("发帖、点赞、评论、关注话题正在开发中。先看看来自学长学姐的经验长文与东大生存手册。")
+                .foregroundStyle(tint)
+            Text(detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -52,29 +74,27 @@ struct HomeForumSection: View {
     }
 }
 
-private struct HomeExperienceRow: View {
-    let item: DocItem
+private struct HomePostRow: View {
+    let post: ForumPost
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "graduationcap.fill")
+            Image(systemName: post.isPinned ? "pin.fill" : "bubble.left.and.text.bubble.right")
                 .font(.body.weight(.medium))
                 .foregroundStyle(.orange)
                 .frame(width: 32, height: 32)
                 .background(.orange.opacity(0.12), in: .circle)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
+                Text(post.headline)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                 HStack(spacing: 6) {
-                    if let author = item.author, !author.isEmpty {
-                        Text(author)
+                    if let name = post.author?.name, !name.isEmpty {
+                        Text(name)
                     }
-                    if let category = item.category, !category.isEmpty {
-                        Text("·")
-                        Text(category)
-                    }
+                    Text("\(forumCompactCount(post.likesCount)) 赞")
+                    Text("\(forumCompactCount(post.commentsCount)) 评论")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -85,33 +105,15 @@ private struct HomeExperienceRow: View {
     }
 }
 
-/// 「精选经验」完整列表页。
-struct ExperienceListView: View {
-    @Environment(ExperienceStore.self) private var store: ExperienceStore?
-
+/// 「社区热议」查看全部的落点：完整热榜信息流。
+private struct HomeForumFeedView: View {
     var body: some View {
-        Group {
-            if let items = store?.experience?.items, !items.isEmpty {
-                List(items) { item in
-                    NavigationLink(value: item.navigationValue) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title)
-                                .font(.subheadline.weight(.medium))
-                            if let description = item.description, !description.isEmpty {
-                                Text(description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            } else {
-                ContentUnavailableView("暂无经验内容", systemImage: "text.book.closed")
-            }
-        }
-        .navigationTitle("精选经验")
-        .task { await store?.loadExperience() }
+        ForumPostListView(
+            feedKey: .hot,
+            emptyTitle: "还没有热门帖子",
+            emptyDescription: "论坛刚开张，去「经验」页写下第一篇分享。"
+        )
+        .navigationTitle("社区热议")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

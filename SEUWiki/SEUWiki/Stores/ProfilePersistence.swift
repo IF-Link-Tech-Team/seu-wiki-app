@@ -13,9 +13,12 @@ enum ProfileStorage {
         case interests = "profile.interests"
         case reminders = "profile.reminders"
         case courses = "profile.courses"
-        case followedTopicIDs = "profile.followedTopicIDs"
         case bookmarkedSlugs = "profile.bookmarkedSlugs"
     }
+
+    /// 已废弃、不再读写的旧 key（关注关系改走论坛服务端后移除）。
+    /// reset 时一并清掉，不给老用户留死数据。
+    private static let legacyKeys = ["profile.followedTopicIDs"]
 
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -70,13 +73,16 @@ enum ProfileStorage {
         defaults.object(forKey: versionKey(for: key)) as? Int ?? 1
     }
 
-    /// 清空所有 profile 相关 key（含初始化标记、版本号与损坏备份）。
+    /// 清空所有 profile 相关 key（含初始化标记、版本号、损坏备份与已废弃的旧 key）。
     static func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: initializedKey)
         for key in Key.allCases {
             defaults.removeObject(forKey: key.rawValue)
             defaults.removeObject(forKey: versionKey(for: key))
             defaults.removeObject(forKey: corruptKey(for: key))
+        }
+        for key in legacyKeys {
+            defaults.removeObject(forKey: key)
         }
     }
 
@@ -114,9 +120,9 @@ enum ProfileStorage {
         check("course round-trip", loadedCourses == [course])
 
         // Set<String>
-        let ids: Set<String> = ["baoyan", "srtp", "竞赛"]
-        save(ids, for: .followedTopicIDs, defaults: suite)
-        let loadedIDs = load(Set<String>.self, for: .followedTopicIDs, defaults: suite)
+        let ids: Set<String> = ["docs/survival/a", "docs/survival/b", "竞赛"]
+        save(ids, for: .bookmarkedSlugs, defaults: suite)
+        let loadedIDs = load(Set<String>.self, for: .bookmarkedSlugs, defaults: suite)
         check("set round-trip", loadedIDs == ids)
 
         // 空数组/空集合边界
@@ -126,7 +132,7 @@ enum ProfileStorage {
 
         // reset 清空
         ProfileStorage.reset(defaults: suite)
-        check("reset clears keys", load(Set<String>.self, for: .followedTopicIDs, defaults: suite) == nil)
+        check("reset clears keys", load(Set<String>.self, for: .bookmarkedSlugs, defaults: suite) == nil)
 
         print("[ProfileStorage] self-test \(ok ? "passed" : "FAILED")")
         return ok

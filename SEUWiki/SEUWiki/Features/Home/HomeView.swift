@@ -3,7 +3,6 @@ import SwiftUI
 struct HomeView: View {
     @Environment(UserProfile.self) private var profile
     @Environment(FeedStore.self) private var feedStore
-    @State private var experienceStore = ExperienceStore()
     @State private var showsProfile = false
 
     /// 跨 tab 跳转：由 `RootTabView` 注入。
@@ -46,7 +45,6 @@ struct HomeView: View {
                 await feedStore.refresh(scope: .forYou, profile: profile)
             }
         }
-        .environment(experienceStore)
     }
 
     private var reminderCard: some View {
@@ -71,4 +69,5 @@ struct HomeView: View {
     HomeView()
         .environment(UserProfile())
         .environment(FeedStore())
+        .environment(ForumStore())
 }

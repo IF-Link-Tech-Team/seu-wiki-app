@@ -9,7 +9,6 @@ final class UserProfile {
     static let defaultDegree = "本科"
     static let defaultGrade = "大三"
     static let defaultInterests: [String] = ["保研", "SRTP", "机器学习"]
-    static let defaultFollowedTopicIDs: Set<String> = ["baoyan", "srtp"]
 
     @ObservationIgnored
     private let defaults: UserDefaults
@@ -26,7 +25,8 @@ final class UserProfile {
     /// 演示数据只能在 `#if DEBUG` 下由 Preview 注入，不能进生产默认值。
     var reminders: [CampusReminder] = [] { didSet { persist(reminders, for: .reminders) } }
     var courses: [Course] = [] { didSet { persist(courses, for: .courses) } }
-    var followedTopicIDs = UserProfile.defaultFollowedTopicIDs { didSet { persist(followedTopicIDs, for: .followedTopicIDs) } }
+    // 关注关系全部走论坛服务端（`GET/POST/DELETE /api/follows`），不再存本地
+    // `followedTopicIDs` —— 本地默认值曾是假数据（用户从没关注过 baoyan/srtp）。
     var bookmarkedSlugs: Set<String> = [] { didSet { persist(bookmarkedSlugs, for: .bookmarkedSlugs) } }
 
     init(defaults: UserDefaults = .standard) {
@@ -39,7 +39,6 @@ final class UserProfile {
             if let v = ProfileStorage.load([String].self, for: .interests, defaults: defaults) { interests = v }
             if let v = ProfileStorage.load([CampusReminder].self, for: .reminders, defaults: defaults) { reminders = v }
             if let v = ProfileStorage.load([Course].self, for: .courses, defaults: defaults) { courses = v }
-            if let v = ProfileStorage.load(Set<String>.self, for: .followedTopicIDs, defaults: defaults) { followedTopicIDs = v }
             if let v = ProfileStorage.load(Set<String>.self, for: .bookmarkedSlugs, defaults: defaults) { bookmarkedSlugs = v }
         } else {
             // 首次启动：把默认值落盘并写入初始化标记。
@@ -109,7 +108,6 @@ final class UserProfile {
         interests = UserProfile.defaultInterests
         reminders = []
         courses = []
-        followedTopicIDs = UserProfile.defaultFollowedTopicIDs
         bookmarkedSlugs = []
     }
 
@@ -124,7 +122,6 @@ final class UserProfile {
         persist(interests, for: .interests)
         persist(reminders, for: .reminders)
         persist(courses, for: .courses)
-        persist(followedTopicIDs, for: .followedTopicIDs)
         persist(bookmarkedSlugs, for: .bookmarkedSlugs)
     }
 }
