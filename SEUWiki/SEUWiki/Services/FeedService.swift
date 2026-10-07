@@ -9,7 +9,8 @@ import UIKit
 /// 所以挂 token 有两个纯粹的坏处：白白扩大凭证暴露面，且每刷一次 feed 都会把
 /// 续期链路（并发合并、错误分类）拽进来，凭空多出一堆能把自己登出局的路径。
 /// 个性化**不依赖登录** —— for-you 的画像参数直接来自本地 `UserProfile`。
-/// 等 forum 接通、那边真的要 Bearer 时，再单独给 forum 客户端挂 token 并加 host 白名单。
+/// 论坛（forum.seu.wiki）需要 Bearer token 的请求走单独的 `ForumAPIClient`
+/// （`Services/ForumService.swift`，带 host 白名单），token 不会出现在这两个域名之外。
 ///
 /// 缓存：timeline/for-you 由服务端发 ETag，走 `URLCache`（见 `makeSession`）。
 struct FeedAPIClient: Sendable {
@@ -87,32 +88,12 @@ struct FeedAPIClient: Sendable {
         )
     }
 
-    // MARK: - 手册 / 经验长文
+    // MARK: - 长文详情
 
-    /// GET /api/site/docs/survival → 生存手册目录（「篇 → 组 → 条」的真实文档树）。
-    func survivalIndex() async throws -> HandbookIndex {
-        let dto: SurvivalIndexDTO = try await get("/api/site/docs/survival", query: [])
-        return dto.index
-    }
-
-    /// GET /api/site/docs/experience?category=&grade=&college= → 经验长文索引 + 分面筛选项。
-    func experienceIndex(
-        categories: [String] = [],
-        grades: [String] = [],
-        colleges: [String] = []
-    ) async throws -> ExperienceIndex {
-        var query: [URLQueryItem] = []
-        if !categories.isEmpty { query.append(URLQueryItem(name: "category", value: categories.joined(separator: ","))) }
-        if !grades.isEmpty { query.append(URLQueryItem(name: "grade", value: grades.joined(separator: ","))) }
-        if !colleges.isEmpty { query.append(URLQueryItem(name: "college", value: colleges.joined(separator: ","))) }
-        let dto: ExperienceIndexDTO = try await get("/api/site/docs/experience", query: query)
-        return ExperienceIndex(
-            filters: dto.filters.map { ExperienceIndex.Facet(key: $0.key, label: $0.label, values: $0.values) },
-            items: dto.items.map(\.item)
-        )
-    }
-
-    /// GET /api/site/docs/{slug} → 手册/经验条目详情，含正文与目录（outline）。
+    /// GET /api/site/docs/{slug} → 长文详情，含正文与目录（outline）。
+    ///
+    /// 经验长文与生存手册的**索引**信源已移除（经验 tab 论坛化），但长文详情
+    /// 保留：本机的「长文收藏」与 `-uidoc` 调试深链的落点还是它。
     ///
     /// slug 形如 `survival/观点篇/1-认识`：含中文与 `/`。后端路由是通配 `/api/site/docs/*`，
     /// **必须只编码非 ASCII，斜杠保留字面量** —— 把 `/` 也编掉会 404。
@@ -135,22 +116,20 @@ struct FeedAPIClient: Sendable {
         )
     }
 
-    // MARK: - 统一搜索
+    // MARK: - 资讯搜索
 
-    /// GET /api/site/pool?q=&type= → 一次搜三类信源。
+    /// GET /api/site/pool?q=&type=feed&page= → 搜索资讯动态。
     ///
-    /// `type=all`（默认）时后端同时返回 `items`（资讯动态）与 `docs`
-    /// （手册 survival + 经验 experience 长文命中）。两端都**必须**用上 `docs`：
-    /// 只取 `items` 的话，「经验」和「手册」两栏就只能拿本地假数据填。
-    func pool(query: String, type: PoolSearchType = .all, page: Int = 1) async throws -> PoolResult {
+    /// pool 还接受 `type=all`（同时返回长文 `docs` 命中），但 App 的经验/手册
+    /// 搜索已改走论坛 `/api/search`（见 `SearchStore`），这里固定只搜资讯。
+    func pool(query: String, page: Int = 1) async throws -> PoolResult {
         let response: PoolResponseDTO = try await get("/api/site/pool", query: [
             URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "type", value: type.rawValue),
+            URLQueryItem(name: "type", value: "feed"),
             URLQueryItem(name: "page", value: String(page)),
         ])
         return PoolResult(
             items: response.items.map { $0.feedItem() },
-            docs: response.mappedDocs,
             page: response.page,
             pageCount: response.pageCount,
             total: response.total
@@ -209,26 +188,19 @@ struct FeedAPIClient: Sendable {
     }()
 }
 
-/// 搜索时的信源范围，对应后端 `pool` 的 `type` 参数。
-enum PoolSearchType: String, CaseIterable, Sendable {
-    case all, feed, survival, experience
-}
-
 // MARK: - 搜索与文档模型
 
 struct PoolResult: Sendable {
     var items: [FeedItem]
-    var docs: [DocSearchHit]
     var page: Int
     var pageCount: Int
     var total: Int
-
-    var experienceHits: [DocSearchHit] { docs.filter { $0.kind == .experience } }
-    var survivalHits: [DocSearchHit] { docs.filter { $0.kind == .survival } }
 }
 
-/// 搜索命中的长文（手册或经验）。`anchor` 非空表示命中的是正文里的某个小节，
-/// 详情页应滚动定位过去。
+/// 长文路由值：`DocDetailView` 的 navigationDestination payload。
+/// 原先还是 pool 搜索 `docs` 命中的模型（那时靠 `kind` 区分手册/经验），
+/// 长文索引与搜索移除后只剩两个用途：`-uidoc` 调试深链、个人页「长文收藏（本机）」。
+/// `anchor` 非空表示命中的是正文里的某个小节，详情页应滚动定位过去。
 struct DocSearchHit: Identifiable, Hashable, Sendable {
     enum Kind: String, Sendable { case survival, experience }
 
@@ -246,51 +218,7 @@ struct DocSearchHit: Identifiable, Hashable, Sendable {
     }
 }
 
-/// 生存手册目录树。
-struct HandbookIndex: Sendable {
-    struct Part: Identifiable, Hashable, Sendable {
-        var id: String { key }
-        var key: String
-        var label: String
-        var groups: [Group]
-    }
-    struct Group: Identifiable, Hashable, Sendable {
-        var id: String { "\(key)-\(items.map(\.slug).joined(separator: ","))" }
-        var key: String
-        var items: [DocItem]
-    }
-    var parts: [Part]
-}
-
-/// 经验长文索引 + 可选筛选项。
-struct ExperienceIndex: Sendable {
-    struct Facet: Identifiable, Hashable, Sendable {
-        var id: String { key }
-        var key: String
-        var label: String
-        var values: [String]
-    }
-    var filters: [Facet]
-    var items: [DocItem]
-}
-
-/// 手册/经验条目在索引里的形态。
-struct DocItem: Identifiable, Hashable, Sendable {
-    var id: String { slug }
-    var slug: String
-    var kind: String
-    var title: String
-    var description: String?
-    var author: String?
-    var occurredAt: String?
-    var category: String?
-    var grade: String?
-    var college: String?
-    var part: String?
-    var position: Int?
-}
-
-/// 条目详情（含正文与目录）。
+/// 长文详情（含正文与目录）。
 struct DocDetail: Sendable {
     /// 目录条目。`id` 直接用后端给的锚点 id，它在同一篇文档内唯一。
     struct Outline: Identifiable, Hashable, Sendable {
@@ -469,39 +397,9 @@ private struct ForYouResponseDTO: Decodable {
 
 private struct PoolResponseDTO: Decodable {
     let items: [FeedItemSummaryDTO]
-    let docs: [DocHitDTO]?
     let page: Int
     let pageCount: Int
     let total: Int
-}
-
-private struct DocHitDTO: Decodable {
-    struct AnchorDTO: Decodable {
-        let id: String
-        let text: String
-    }
-    let slug: String
-    let kind: String
-    let title: String
-    let description: String?
-    let occurredAt: String?
-    let anchor: AnchorDTO?
-
-    var hit: DocSearchHit {
-        DocSearchHit(
-            slug: slug,
-            kind: DocSearchHit.Kind(rawValue: kind) ?? .survival,
-            title: title,
-            description: description,
-            occurredAt: occurredAt,
-            anchor: anchor.map { DocSearchHit.Anchor(id: $0.id, text: $0.text) }
-        )
-    }
-}
-
-extension PoolResponseDTO {
-    /// `docs` 的便捷映射，交给调用方时已转成模型。
-    var mappedDocs: [DocSearchHit] { (docs ?? []).map(\.hit) }
 }
 
 private struct ItemDetailDTO: Decodable {
@@ -520,52 +418,7 @@ private struct ItemDetailDTO: Decodable {
     let body: Body?
 }
 
-// MARK: - 手册 / 经验索引 DTO
-
-private struct DocItemDTO: Decodable {
-    let slug: String
-    let kind: String
-    let title: String
-    let description: String?
-    let author: String?
-    let occurredAt: String?
-    let category: String?
-    let grade: String?
-    let college: String?
-    let part: String?
-    let position: Int?
-
-    var item: DocItem {
-        DocItem(
-            slug: slug, kind: kind, title: title, description: description,
-            author: author, occurredAt: occurredAt, category: category,
-            grade: grade, college: college, part: part, position: position
-        )
-    }
-}
-
-private struct SurvivalIndexDTO: Decodable {
-    struct GroupDTO: Decodable {
-        let key: String
-        let items: [DocItemDTO]
-    }
-    struct PartDTO: Decodable {
-        let key: String
-        let label: String
-        let groups: [GroupDTO]
-    }
-    let parts: [PartDTO]
-}
-
-private struct ExperienceIndexDTO: Decodable {
-    struct FacetDTO: Decodable {
-        let key: String
-        let label: String
-        let values: [String]
-    }
-    let filters: [FacetDTO]
-    let items: [DocItemDTO]
-}
+// MARK: - 长文详情 DTO
 
 /// 非 private：SelfCheck 拿真实响应做解码断言，防止字段名再写错（错名不报错，只静默变空）。
 struct DocDetailDTO: Decodable {    let slug: String
@@ -591,20 +444,6 @@ struct HeadingDTO: Decodable {
     let id: String?
     let text: String
     let depth: Int?
-}
-
-private extension SurvivalIndexDTO {
-    var index: HandbookIndex {
-        HandbookIndex(parts: parts.map { part in
-            HandbookIndex.Part(
-                key: part.key,
-                label: part.label,
-                groups: part.groups.map { group in
-                    HandbookIndex.Group(key: group.key, items: group.items.map(\.item))
-                }
-            )
-        })
-    }
 }
 
 // MARK: - 白名单 HTML → AttributedString
