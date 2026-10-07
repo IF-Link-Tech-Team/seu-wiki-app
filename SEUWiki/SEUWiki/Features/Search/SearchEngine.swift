@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// 搜索的本地工具只剩「关键词高亮」了 —— 三个信源的数据都来自线上
-/// `/api/site/pool`（`items` + `docs`），不再有本地 provider，也不再有 Mock 回退。
+/// 搜索的本地工具只剩「关键词高亮」了 —— 通知信源来自线上 `/api/site/pool`，
+/// 经验/手册来自论坛 `/api/search`（见 `SearchStore`），不再有本地 provider，
+/// 也不再有 Mock 回退。
 ///
 /// 早期版本这里的 `searchForum` / `searchHandbook` 拿 `MockData` 本地匹配，
 /// 表现是「搜什么都出同一批编造的帖子和手册」；`searchFeedOffline` 更糟 ——

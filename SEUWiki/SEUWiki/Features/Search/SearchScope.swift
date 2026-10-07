@@ -38,8 +38,8 @@ enum SearchScope: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .all: ""
         case .feed: "教务、奖助、竞赛、招聘等校园资讯"
-        case .forum: "保研、考研、留学、实习等经验帖"
-        case .handbook: "入学、选课、奖助、生活等手册条目"
+        case .forum: "论坛里的经验帖与讨论"
+        case .handbook: "东大生存手册的沉淀文章"
         }
     }
 }

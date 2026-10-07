@@ -26,42 +26,74 @@ struct SearchFeedRow: View {
     }
 }
 
-/// 搜索结果行（经验长文 / 生存手册）。
-///
-/// 两个信源在后端是同一份 `DocSearchHit`（`/api/site/pool` 的 `docs` 数组，
-/// 靠 `kind` 区分），所以共用一个行组件，只是图标与配色不同 —— 这样「经验」和
-/// 「手册」两栏展示的信息层次天然一致。
-struct SearchDocRow: View {
-    let hit: DocSearchHit
+/// 搜索结果行（论坛经验帖）：标题（无标题时正文节选）+ 节选 + 作者/互动计数。
+struct SearchPostRow: View {
+    let post: ForumPost
     let keyword: String
 
-    private var tint: Color { hit.kind == .experience ? .orange : .green }
-    private var icon: String {
-        hit.kind == .experience ? "graduationcap.fill" : "book.closed.fill"
-    }
-
-    /// 摘要优先用 `description`；命中的是正文某个小节时展示锚点文字，
-    /// 让用户知道「命中在文章的哪一段」，点进去能直接定位。
-    private var snippet: String? {
-        if let anchor = hit.anchor, !anchor.text.isEmpty { return anchor.text }
-        if let description = hit.description, !description.isEmpty { return description }
-        return nil
+    private var metaLine: String {
+        var parts: [String] = []
+        if let author = post.author?.name, !author.isEmpty {
+            parts.append(author)
+        }
+        parts.append("\(forumCompactCount(post.likesCount)) 赞")
+        parts.append("\(forumCompactCount(post.commentsCount)) 评论")
+        return parts.joined(separator: " · ")
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
+            Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.body.weight(.medium))
-                .foregroundStyle(tint)
+                .foregroundStyle(.orange)
                 .frame(width: 32, height: 32)
-                .background(tint.opacity(0.12), in: .circle)
+                .background(Color.orange.opacity(0.12), in: .circle)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(hit.title.highlighting(keyword))
+                Text(post.headline.highlighting(keyword))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                if let snippet {
-                    Text(snippet.highlighting(keyword))
+                if let title = post.title, !title.isEmpty, !post.excerpt.isEmpty {
+                    // 有标题时再补一行正文节选；无标题时主行已经是节选了。
+                    Text(post.excerpt.highlighting(keyword))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text(metaLine)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
+
+/// 搜索结果行（东大生存手册文章）：标题 + 标签/作者。
+struct SearchHandbookArticleRow: View {
+    let article: HandbookArticleSummary
+    let keyword: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "book.closed.fill")
+                .font(.body.weight(.medium))
+                .foregroundStyle(.green)
+                .frame(width: 32, height: 32)
+                .background(Color.green.opacity(0.12), in: .circle)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(article.title.highlighting(keyword))
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                let meta = [
+                    ForumTagCatalog.name(for: article.tagSlug),
+                    article.authorDisplay,
+                ]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+                if !meta.isEmpty {
+                    Text(meta)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

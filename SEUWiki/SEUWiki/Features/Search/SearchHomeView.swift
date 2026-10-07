@@ -4,7 +4,8 @@ import SwiftUI
 /// - 关键词为空：热门搜索与搜索范围引导。
 /// - scope 为「全部」：按信源分区的聚合卡片（每区最多 3 条 + 查看更多）。
 /// - scope 为具体信源：直接显示该信源的完整结果列表（不分区）。
-/// 「通知」信源来自线上 pool 搜索（SearchStore 负责防抖 / 取消 / 失败回退 MockData）。
+/// 「通知」信源来自线上 pool 搜索；「经验」「手册」来自论坛 `/api/search`
+/// （SearchStore 负责防抖 / 取消，两个信源各自成败互不牵连，均不回退假数据）。
 struct SearchHomeView: View {
     @State private var keyword = ""
     @State private var scope: SearchScope = .all
@@ -12,6 +13,14 @@ struct SearchHomeView: View {
 
     init(store: SearchStore = SearchStore()) {
         _store = State(initialValue: store)
+        // Debug 专用：`-uisearch 保研` 冷启动直接带关键词搜索。
+        // 本机无合成输入能力，没有这个开关就截不到聚合结果页做验收。
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "-uisearch"), index + 1 < args.count {
+            _keyword = State(initialValue: args[index + 1])
+        }
+        #endif
     }
 
     private var trimmedKeyword: String {
@@ -46,7 +55,7 @@ struct SearchHomeView: View {
                 store.search(keyword: newValue)
             }
             // 只在根部注册一次 destination。早期版本在这里又注册了一遍
-            // `HandbookEntry`，与根视图的 `appNavigationDestinations()` 重复。
+            // 手册条目，与根视图的 `appNavigationDestinations()` 重复。
             .appNavigationDestinations()
         }
     }
@@ -59,45 +68,70 @@ struct SearchHomeView: View {
                     keyword = word
                 }
             }
-        } else if let message = store.errorMessage {
-            // 搜索失败要**如实告诉用户**并给重试，绝不悄悄换成假结果。
-            ContentUnavailableView {
-                Label("搜索失败", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("重试") { store.search(keyword: trimmedKeyword) }
-                    .buttonStyle(.borderedProminent)
-            }
-        } else if store.isEmpty {
-            // 线上搜索进行中先显示加载中，避免空态闪烁。
+        } else if scope == .all {
+            aggregatedResults
+        } else {
+            scopedResult(scope)
+        }
+    }
+
+    /// 具体信源 scope：论坛两个信源要先处理「接口未部署 / 失败」，
+    /// 再落入通用的空态与列表。
+    @ViewBuilder
+    private func scopedResult(_ scope: SearchScope) -> some View {
+        if scope != .feed, store.forumUnavailable {
+            forumUnavailableCard
+        } else if scope != .feed, let message = store.forumErrorMessage {
+            errorCard(title: "论坛搜索失败", message: message)
+        } else if scope == .feed, let message = store.errorMessage, store.feed.items.isEmpty {
+            errorCard(title: "搜索失败", message: message)
+        } else if store.isEmpty(for: scope) {
             if store.isSearching {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView.search(text: trimmedKeyword)
             }
-        } else if scope == .all {
-            aggregatedResults
-        } else if store.isEmpty(for: scope) {
-            ContentUnavailableView.search(text: trimmedKeyword)
         } else {
             SearchSourceListView(scope: scope, keyword: trimmedKeyword, store: store, title: "搜索")
         }
     }
 
-    /// 「全部」scope：三个信源各自一张分区卡片，无命中的信源不显示。
+    // MARK: - 「全部」聚合
+
+    /// 「全部」scope：三个信源各自一张分区卡片；无命中的信源不显示，
+    /// 失败/未部署的信源显示如实的状态卡，不拖垮还能用的信源。
     private var aggregatedResults: some View {
         ScrollView {
             VStack(spacing: 20) {
                 if !store.feed.items.isEmpty {
                     feedSection
+                } else if let message = store.errorMessage {
+                    noticeCard(scope: .feed, title: "通知搜索失败", message: message)
                 }
-                if !store.forum.isEmpty {
-                    forumSection
+
+                if store.forumUnavailable {
+                    noticeCard(scope: .forum, title: "论坛搜索即将上线", message: "经验帖与手册文章的搜索接口还在部署中。")
+                } else {
+                    if !store.forum.items.isEmpty {
+                        forumSection
+                    }
+                    if !store.handbook.items.isEmpty {
+                        handbookSection
+                    }
+                    if store.forum.items.isEmpty, store.handbook.items.isEmpty, let message = store.forumErrorMessage {
+                        noticeCard(scope: .forum, title: "论坛搜索失败", message: message)
+                    }
                 }
-                if !store.handbook.isEmpty {
-                    handbookSection
+
+                if store.isEmpty, store.errorMessage == nil, store.forumErrorMessage == nil, !store.forumUnavailable {
+                    if store.isSearching {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 60)
+                    } else {
+                        ContentUnavailableView.search(text: trimmedKeyword)
+                    }
                 }
             }
             .padding()
@@ -124,12 +158,14 @@ struct SearchHomeView: View {
     private var forumSection: some View {
         SearchSectionCard(
             scope: .forum,
-            count: store.forum.count,
+            count: store.forum.items.count,
             destination: SearchSourceListView(scope: .forum, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(store.forum.prefix(3))) { hit in
-                NavigationLink(value: hit) {
-                    SearchDocRow(hit: hit, keyword: trimmedKeyword)
+            sectionRows(Array(store.forum.items.prefix(3))) { post in
+                NavigationLink {
+                    ForumPostDetailView(postID: post.id, summary: post)
+                } label: {
+                    SearchPostRow(post: post, keyword: trimmedKeyword)
                         .padding(14)
                         .contentShape(.rect)
                 }
@@ -141,18 +177,66 @@ struct SearchHomeView: View {
     private var handbookSection: some View {
         SearchSectionCard(
             scope: .handbook,
-            count: store.handbook.count,
+            count: store.handbook.items.count,
             destination: SearchSourceListView(scope: .handbook, keyword: trimmedKeyword, store: store)
         ) {
-            sectionRows(Array(store.handbook.prefix(3))) { hit in
-                NavigationLink(value: hit) {
-                    SearchDocRow(hit: hit, keyword: trimmedKeyword)
+            sectionRows(Array(store.handbook.items.prefix(3))) { article in
+                NavigationLink {
+                    HandbookArticleView(articleID: article.id, fallbackTitle: article.title)
+                } label: {
+                    SearchHandbookArticleRow(article: article, keyword: trimmedKeyword)
                         .padding(14)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // MARK: - 状态卡
+
+    /// 论坛 `/api/search` 尚未部署时的显式标注（不是错误，不给重试）。
+    private var forumUnavailableCard: some View {
+        ContentUnavailableView {
+            Label("论坛搜索即将上线", systemImage: "bubble.left.and.text.bubble.right")
+        } description: {
+            Text("经验帖与手册文章的搜索接口还在部署中，通知搜索不受影响。")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 聚合视图里的单信源状态卡（失败/未部署），不打断其他信源的结果。
+    private func noticeCard(scope: SearchScope, title: String, message: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: scope.systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(scope.tint)
+                .frame(width: 30, height: 30)
+                .background(scope.tint.opacity(0.12), in: .circle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle(padding: 0)
+    }
+
+    private func errorCard(title: String, message: String) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("重试") { store.search(keyword: trimmedKeyword) }
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// 分区卡片内的结果行列表：行间分隔线与 Home 分区一致。
