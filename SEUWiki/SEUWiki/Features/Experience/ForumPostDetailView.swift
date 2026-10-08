@@ -61,8 +61,7 @@ struct ForumPostDetailView: View {
                     if let link = detail?.handbookArticle {
                         handbookCard(link)
                     }
-                    actionBar
-                    managementBar(post)
+                    actionBar(post)
                     commentSection
                 } else if let errorMessage {
                     ContentUnavailableView {
@@ -294,31 +293,68 @@ struct ForumPostDetailView: View {
 
     // MARK: - 互动栏
 
-    private var actionBar: some View {
-        HStack(spacing: 20) {
+    /// 一排搞定的操作行：赞 / 收藏 ｜ 浏览 / 评论 ｜ 编辑 / 删除，图标为主，
+    /// 与 Android 详情页同一形态。作者自管与管理入口的可见性按 viewer 投影
+    /// 判断，服务端 403 兜底 —— 与仓库 AGENTS.md 的登录门禁规则不冲突。
+    private func actionBar(_ post: ForumPost) -> some View {
+        let isAuthor = viewer != nil && post.author?.id == viewer?.id
+        let canAdminDelete = viewer?.hasCapability("admin:content:delete") == true
+        return HStack(spacing: 16) {
             Button { Task { await toggleLike() } } label: {
                 Label(forumCompactCount(likesCount), systemImage: liked ? "heart.fill" : "heart")
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(liked ? .red : .secondary)
+                    .foregroundStyle(liked ? Color.accentColor : .secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(liked ? "取消赞" : "赞")
 
-            Label(forumCompactCount(commentsCount), systemImage: "bubble.left")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            Button { Task { await toggleBookmark() } } label: {
+                Image(systemName: bookmarked ? "bookmark.fill" : "bookmark")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(bookmarked ? Color.accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(bookmarked ? "取消收藏" : "收藏")
+
+            Spacer(minLength: 0)
 
             Label(forumCompactCount(viewsCount), systemImage: "eye")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            Spacer(minLength: 0)
+            Label(forumCompactCount(commentsCount), systemImage: "bubble.left")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
-            Button { Task { await toggleBookmark() } } label: {
-                Label(bookmarked ? "已收藏" : "收藏", systemImage: bookmarked ? "bookmark.fill" : "bookmark")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(bookmarked ? Color.accentColor : .secondary)
+            if isAuthor {
+                Button { showsEditor = true } label: {
+                    Image(systemName: "pencil")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("编辑")
+
+                Button {
+                    deleteTarget = DeleteTarget(type: .post, id: post.id, admin: false)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("删除")
+            } else if canAdminDelete {
+                Button {
+                    deleteTarget = DeleteTarget(type: .post, id: post.id, admin: true)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("管理删除")
             }
-            .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
     }
@@ -348,41 +384,7 @@ struct ForumPostDetailView: View {
         }
     }
 
-    // MARK: - 作者自管与管理删除
-
-    /// 「编辑 / 删除 / 管理删除」行。可见性按 viewer 投影判断，
-    /// 服务端 403 兜底 —— 与仓库 AGENTS.md 的登录门禁规则不冲突
-    /// （viewer 不做登录门禁，只做授权入口的展示依据）。
-    @ViewBuilder
-    private func managementBar(_ post: ForumPost) -> some View {
-        let isAuthor = viewer != nil && post.author?.id == viewer?.id
-        let canAdminDelete = viewer?.hasCapability("admin:content:delete") == true
-        if isAuthor || (canAdminDelete && !isAuthor) {
-            HStack(spacing: 16) {
-                if isAuthor {
-                    Button {
-                        showsEditor = true
-                    } label: {
-                        Label("编辑", systemImage: "pencil")
-                    }
-                    Button(role: .destructive) {
-                        deleteTarget = DeleteTarget(type: .post, id: post.id, admin: false)
-                    } label: {
-                        Label("删除", systemImage: "trash")
-                    }
-                } else if canAdminDelete {
-                    Button(role: .destructive) {
-                        deleteTarget = DeleteTarget(type: .post, id: post.id, admin: true)
-                    } label: {
-                        Label("管理删除", systemImage: "trash")
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .font(.subheadline)
-            .buttonStyle(.borderless)
-        }
-    }
+    // MARK: - 删除执行
 
     private func performDelete(_ target: DeleteTarget) async {
         do {
