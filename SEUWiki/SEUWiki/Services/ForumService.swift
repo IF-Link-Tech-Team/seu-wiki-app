@@ -1094,6 +1094,22 @@ final class ForumStore {
         }
     }
 
+    // MARK: - 登录态生命周期（由 SEUWikiApp 的统一监听调用，约定见仓库 AGENTS.md）
+
+    /// 登出后调用：清空**全部**用户态数据（关注关系与关注流），防止下一个账号
+    /// 看到上一个账号的残留。公共信息流匿名可读且列表模型不带个性化字段
+    /// （`bookmarked` 只存在于详情模型，每次进入详情重新拉），无需清洗。
+    /// 门禁只看 `AuthStore.isLoggedIn`，这里不维护任何登录状态。
+    func onSignedOut() {
+        followedTagSlugs = []
+        suggestedTags = []
+        followsLoaded = false
+        followsUnavailable = false
+        // 清关注流并作废在途请求（generation 失效模式与 refresh 相同）。
+        pages[.following] = nil
+        generations[.following] = (generations[.following] ?? 0) + 1
+    }
+
     // MARK: - Private
 
     private func nextGeneration(for key: FeedKey) -> Int {

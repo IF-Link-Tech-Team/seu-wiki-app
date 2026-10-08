@@ -28,6 +28,9 @@ struct SEUWikiApp: App {
     @State private var profile = UserProfile()
     @State private var feedStore = FeedStore()
     @State private var forumStore = ForumStore()
+    /// 登录态单一事实源（AGENTS.md）：各功能 store 不自己判断登录，
+    /// 只在这里统一接「登出→清用户态」。登录侧的刷新由各页面 `.task` 负责。
+    @State private var auth = AuthStore.shared
     /// 通知点击的下一步去向。`RootTabView` 观察它并清空。
     @State private var notifications = NotificationCenterDelegate.shared
     /// 外观偏好存在 AppStorage，由这里读出来应用到整棵视图树。
@@ -53,6 +56,12 @@ struct SEUWikiApp: App {
                 .environment(feedStore)
                 .environment(forumStore)
                 .preferredColorScheme(appearance.colorScheme)
+                .onChange(of: auth.isLoggedIn) { _, loggedIn in
+                    // 登出 → 清空论坛 store 里的上个账号投影（关注关系/关注流/
+                    // 列表收藏标记），防换账号串数据。冷启动即登出态时 store 本来
+                    // 就是空的，无需 initial: true。
+                    if !loggedIn { forumStore.onSignedOut() }
+                }
                 .onOpenURL { url in
                     #if DEBUG
                     AuthStore.shared.handleDebugURL(url)
