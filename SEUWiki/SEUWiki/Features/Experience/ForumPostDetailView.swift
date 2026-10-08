@@ -84,6 +84,7 @@ struct ForumPostDetailView: View {
         }
         .groupedBackground()
         .navigationTitle("帖子")
+        .trackScreen("/forum/post", title: "帖子详情")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaBar(edge: .bottom) {
             if shownPost != nil {

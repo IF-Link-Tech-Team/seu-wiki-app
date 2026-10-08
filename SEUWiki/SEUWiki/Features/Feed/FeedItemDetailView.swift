@@ -104,6 +104,7 @@ struct FeedItemDetailView: View {
         // 占位条目的 category 是占位值 `.news`，拿它当导航标题等于凭空断言
         // 「这条属于校园新闻」。这种情况下用中性的栏目名。
         .navigationTitle(isDeepLinkPlaceholder ? "资讯" : item.category.name)
+        .trackScreen("/feed/item", title: "资讯详情")
         .navigationBarTitleDisplayMode(.inline)
         // iOS 26 起 `.safeAreaBar` 才是正确的底部条写法：系统自动处理材质、圆角与
         // 和 tab 栏的层级关系。早期的 `.safeAreaInset` + `.background(.bar)` 是手绘伪材质，

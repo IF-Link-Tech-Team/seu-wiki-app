@@ -31,6 +31,7 @@ struct GPACalculatorView: View {
         }
         .groupedBackground()
         .navigationTitle("绩点计算")
+        .trackScreen("/tools/gpa", title: "绩点计算")
         .tint(.green)
         .scrollDismissesKeyboard(.interactively)
     }

@@ -74,6 +74,7 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("我的")
+            .trackScreen("/profile", title: "个人中心")
             .navigationDestination(isPresented: $showsLogin) {
                 // 显式传 auth，不靠 environment 传播（原因见 LoginView 的注释）。
                 LoginView(auth: auth)

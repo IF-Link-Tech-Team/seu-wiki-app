@@ -36,6 +36,7 @@ struct SearchHomeView: View {
                 }
                 .groupedBackground()
             .navigationTitle("搜索")
+            .trackScreen("/search", title: "搜索")
             // `displayMode: .always` 是**故意**保留的。
             //
             // 既有审查（I-3）建议去掉 placement，理由是「钉在顶部会失去 tab 栏的变形动画」。

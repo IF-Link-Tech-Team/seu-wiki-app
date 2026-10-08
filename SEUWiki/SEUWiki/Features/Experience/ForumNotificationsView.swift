@@ -60,6 +60,7 @@ struct ForumNotificationsView: View {
         }
         .groupedBackground()
         .navigationTitle("通知")
+        .trackScreen("/forum/notifications", title: "论坛通知")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await store.refreshNotifications() }
         .task(id: auth.isLoggedIn) {

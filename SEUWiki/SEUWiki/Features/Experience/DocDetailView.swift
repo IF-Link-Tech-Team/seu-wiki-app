@@ -40,6 +40,8 @@ struct DocDetailView: View {
             }
             .groupedBackground()
             .navigationTitle(isHandbook ? "东大生存手册" : "经验分享")
+            .trackScreen(isHandbook ? "/handbook/doc" : "/experience/doc",
+                         title: isHandbook ? "手册长文" : "经验长文")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

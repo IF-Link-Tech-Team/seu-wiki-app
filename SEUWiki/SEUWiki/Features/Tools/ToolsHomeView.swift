@@ -39,6 +39,7 @@ struct ToolsHomeView: View {
             }
             .groupedBackground()
             .navigationTitle("工具")
+            .trackScreen("/tools", title: "工具")
             .profileEntry(isPresented: $showsProfile)
             .navigationDestination(for: ToolItem.self) { tool in
                 toolDestination(tool)

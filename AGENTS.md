@@ -39,5 +39,7 @@ SwiftUI 原生客户端。本文件记录**必须遵守**的工程规则，改�
 
 - `Features/Profile/AuthStore.swift` — Logto 会话、token 续期、登录/登出。
 - `Services/ForumService.swift` — 论坛 HTTP 客户端 + `ForumStore`（含 `onSignedOut`）。
+- `Services/AnalyticsService.swift` — Umami 统计（`umami.iflink.tech`）：payload 纯函数 +
+  `.trackScreen` 埋点，DEBUG 不上报，契约断言在 SelfCheck（与 Android 同语义）。
 - `App/SEUWikiApp.swift` — store 装配 + 登录态统一接线（`.onChange`）。
 - `Features/Experience/` — 论坛各页面（信息流/详情/发帖/手册）。

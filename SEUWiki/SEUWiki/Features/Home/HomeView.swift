@@ -34,6 +34,7 @@ struct HomeView: View {
             }
             .groupedBackground()
             .navigationTitle("主页")
+            .trackScreen("/home", title: "首页")
             .profileEntry(isPresented: $showsProfile)
             .appNavigationDestinations()
             .refreshable {

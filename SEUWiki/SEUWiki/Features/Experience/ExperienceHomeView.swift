@@ -41,6 +41,11 @@ struct ExperienceHomeView: View {
             }
             .groupedBackground()
             .navigationTitle("经验")
+            // 三个 console 是独立屏幕：分开埋点而不是统一报 /experience。
+            // 挂在 TabView 根上而不是各子页——page 样式的子页 onAppear 时机会随
+            // 懒加载漂移，在这里以 `tab` 为准最稳定。
+            .onAppear { trackConsole(tab) }
+            .onChange(of: tab) { _, newTab in trackConsole(newTab) }
             .toolbar {
                 // 通知入口：纯登录态功能，未登录不渲染（门禁只看 isLoggedIn，见 AGENTS.md）。
                 if auth.isLoggedIn {
@@ -89,6 +94,16 @@ struct ExperienceHomeView: View {
     private func select(_ tab: ForumFeedTab) {
         withAnimation(.smooth(duration: 0.35)) {
             self.tab = tab
+        }
+    }
+
+    /// console → Umami 屏幕路径。热门/关注都是论坛信息流（/forum 系），
+    /// 手册单列 /handbook，与网页端路由习惯一致。
+    private func trackConsole(_ tab: ForumFeedTab) {
+        switch tab {
+        case .hot: UmamiAnalytics.trackScreen("/forum", title: "论坛")
+        case .following: UmamiAnalytics.trackScreen("/forum/following", title: "论坛 · 关注")
+        case .handbook: UmamiAnalytics.trackScreen("/handbook", title: "东大生存手册")
         }
     }
 }

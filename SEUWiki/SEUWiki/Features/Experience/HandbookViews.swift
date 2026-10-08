@@ -162,6 +162,7 @@ struct HandbookSectionView: View {
         }
         .groupedBackground()
         .navigationTitle(title)
+        .trackScreen("/handbook/section", title: "手册板块")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
     }
@@ -273,6 +274,7 @@ struct HandbookArticleView: View {
         }
         .groupedBackground()
         .navigationTitle("东大生存手册")
+        .trackScreen("/handbook/article", title: "手册文章")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: articleID) { await load() }
     }

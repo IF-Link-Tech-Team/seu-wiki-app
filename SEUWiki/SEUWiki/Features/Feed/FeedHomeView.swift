@@ -105,6 +105,7 @@ struct FeedHomeView: View {
             }
             .groupedBackground()
             .navigationTitle("资讯")
+            .trackScreen("/feed", title: "资讯")
             .toolbar {
                 if case .all = scope {
                     ToolbarItem(placement: .topBarTrailing) {

@@ -113,6 +113,7 @@ struct TimetableView: View {
         }
         .groupedBackground()
         .navigationTitle("课表")
+        .trackScreen("/tools/timetable", title: "课表")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("添加", systemImage: "plus") {

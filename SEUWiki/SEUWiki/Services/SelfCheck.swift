@@ -49,6 +49,7 @@ enum SelfCheck {
         checkForumViewerContract()
         checkForumNotificationContract()
         checkPersistence()
+        checkUmamiContract()
         let snapshot = results
         let failed = snapshot.filter { !$0.passed }
         if failed.isEmpty {
@@ -624,6 +625,69 @@ enum SelfCheck {
     private static func checkPersistence() {
         expect("持久化/往返自检", ProfileStorage.runPersistenceSelfTest())
         expect("持久化/schema 版本已写入", ProfileStorage.storedVersion(for: .courses) >= 1)
+    }
+
+    // MARK: - Umami 统计契约
+
+    /// Umami `/api/send` 的请求体契约。与 Android `SelfCheckTest` 的 Umami 断言
+    /// **同一份契约、逐字段对齐**：website id、hostname、type、url/title。
+    /// 统计 SDK 没有编译期保护——website id 拼错、type 写成别的值，都是静默丢数据，
+    /// Umami 后台只会表现为「App 端一直没量」，只能靠断言钉住。
+    private static func checkUmamiContract() {
+        let body = UmamiAnalytics.screenViewPayload(
+            url: "/forum", title: "论坛", referrer: "/home",
+            screen: "1170x2532", language: "zh-CN"
+        )
+        expect("统计/type 为 event", body["type"] as? String == "event",
+               "实际 \(body["type"] ?? "nil")")
+        guard let payload = body["payload"] as? [String: Any] else {
+            expect("统计/payload 存在", false)
+            return
+        }
+        expect("统计/website id 与建站一致",
+               payload["website"] as? String == "97ce2a8e-3118-478e-81e3-ea76c9f73f35",
+               "实际 \(payload["website"] ?? "nil")")
+        expect("统计/hostname", payload["hostname"] as? String == "app.seu.wiki",
+               "实际 \(payload["hostname"] ?? "nil")")
+        expect("统计/url 为屏幕路径", payload["url"] as? String == "/forum",
+               "实际 \(payload["url"] ?? "nil")")
+        expect("统计/title", payload["title"] as? String == "论坛",
+               "实际 \(payload["title"] ?? "nil")")
+        expect("统计/screen 尺寸", payload["screen"] as? String == "1170x2532",
+               "实际 \(payload["screen"] ?? "nil")")
+        expect("统计/language", payload["language"] as? String == "zh-CN",
+               "实际 \(payload["language"] ?? "nil")")
+        expect("统计/referrer 为上一屏路径", payload["referrer"] as? String == "/home",
+               "实际 \(payload["referrer"] ?? "nil")")
+        // 纯页面浏览不带 name/data，否则 Umami 会把每次浏览都记成自定义事件。
+        expect("统计/页面浏览不带 name", payload["name"] == nil)
+        expect("统计/页面浏览不带 data", payload["data"] == nil)
+
+        // 自定义事件形态：name + data 都进 payload。
+        let event = UmamiAnalytics.screenViewPayload(
+            url: "/forum", title: "论坛", screen: "1170x2532", language: "zh-CN",
+            eventName: "发帖", data: ["tag": "baoyan"]
+        )
+        let eventPayload = event["payload"] as? [String: Any]
+        expect("统计/自定义事件 name", eventPayload?["name"] as? String == "发帖",
+               "实际 \(eventPayload?["name"] ?? "nil")")
+        expect("统计/自定义事件 data",
+               (eventPayload?["data"] as? [String: String])?["tag"] == "baoyan",
+               "实际 \(eventPayload?["data"] ?? "nil")")
+
+        // 整体必须能被 JSONSerialization 序列化（Any 字典混型时最常见的失败点）。
+        expect("统计/请求体可序列化",
+               JSONSerialization.isValidJSONObject(body)
+               && (try? JSONSerialization.data(withJSONObject: body)) != nil)
+
+        // UA 必须是 Umami 能解析出 iOS 的形态（服务端靠 IP+UA 生成会话、解析设备/OS）。
+        let ua = UmamiAnalytics.userAgent
+        expect("统计/UA 为移动端 Safari 形态", ua.hasPrefix("Mozilla/5.0 (iP"), "实际 \(ua)")
+        expect("统计/UA 带 iOS 版本标记", ua.contains("OS ") && ua.contains("like Mac OS X"), "实际 \(ua)")
+        expect("统计/UA 带 App 版本", ua.contains("SEUWiki/"), "实际 \(ua)")
+
+        // 开发与自检都在 DEBUG 跑，DEBUG 绝不上报——否则统计里全是开发流量。
+        expect("统计/DEBUG 构建不上报", !UmamiAnalytics.isEnabled)
     }
 }
 #endif
