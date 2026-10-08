@@ -104,3 +104,13 @@ SEUWiki/SEUWiki/
 其中 75 条是 SF Symbol 校验：`Image(systemName:)` 拿到不存在的名字**不报错、只画空白**，构建照样全绿。`checkSFSymbols()` 把工程用到的每个 SF 名用 `UIImage(systemName:)` 验一遍 —— 这条是安卓端在模拟器截图里发现「收藏按钮渲染成九宫格」之后补的，安卓那边兜底成了一个语义完全不相干的图形，iOS 这边兜底是空白。清单是照源码全量扫出来的，**新增图标要往 `usedSFSymbols` 里加一行**。
 
 它抓到过五个真实 bug（`Double("inf")` 返回 `inf` 而非 nil、`%25` 双重编码、目录字段名写成 `outline` 而后端是 `headings`、`userInfo` key 写错导致点通知静默失效、夏令时用减 86400 秒会让提醒差一小时）——**这些都是代码审查看不出来、只有断言能抓住的**。新增这类修复时请一并补断言。
+
+## 参与共建
+
+这是东大学生共建的开源项目（MIT），欢迎提 Issue 和 PR。改动前先读
+`AGENTS.md` —— 账号体系铁律、构建与自检规则都在里面。涉及双端行为的改动，
+记得同步 Android 端 `../seu-wiki-android` 的 `SelfCheckTest.kt` 断言。
+
+## License
+
+MIT，见 `LICENSE`。
