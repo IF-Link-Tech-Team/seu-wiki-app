@@ -214,6 +214,42 @@ struct ForumAPIClient: Sendable {
         return (dto.bookmarks.map(\.item), dto.nextCursor)
     }
 
+    // MARK: - 通知
+
+    /// `GET /api/notifications?limit=&cursor=`（需登录，401 未登录）。
+    ///
+    /// keyset 游标（latest 排序）；响应顺带下发 `unread_count`，角标直接用，
+    /// 不必再发一发请求。`actor` / `post` 都可能为 null（软删用户 / 已删帖），条目仍在。
+    /// `limit` 传小值（如 1）就是一次轻量的「只取未读数」调用。
+    func notifications(cursor: String? = nil, limit: Int? = nil) async throws -> (items: [ForumNotification], nextCursor: String?, unreadCount: Int) {
+        var query = [URLQueryItem(name: "limit", value: String(limit ?? pageSize))]
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        let dto: NotificationsResponseDTO = try await get("/api/notifications", query: query, auth: .required)
+        return (dto.notifications.map(\.notification), dto.nextCursor, dto.unreadCount ?? 0)
+    }
+
+    /// `POST /api/notifications/mark-read`：全部标记已读。
+    ///
+    /// body 必须是**空对象**（`notifications/mark-read/route.ts` 的
+    /// `hasOnlyKeys(parsed.body, [])`，多一个 key 就 400 `INVALID_BODY`）。
+    /// `EmptyBody` 编码出来恰好是 `{}`。
+    func markNotificationsRead() async throws {
+        struct ResultDTO: Decodable {
+            let marked: Int?
+            let unreadCount: Int?
+            enum CodingKeys: String, CodingKey {
+                case marked
+                case unreadCount = "unread_count"
+            }
+        }
+        let _: ResultDTO = try await sendJSON(
+            "/api/notifications/mark-read",
+            method: "POST",
+            body: EmptyBody(),
+            auth: .required
+        )
+    }
+
     // MARK: - 发帖
 
     /// POST /api/posts `{title?, content≤20000, tags:[slug…≤3]}`。
@@ -830,6 +866,56 @@ private struct BookmarksResponseDTO: Decodable {
     }
 }
 
+/// 通知条目。`actor` / `post` 服务端都可能给 null（软删用户 / 已删帖）。
+/// 非 private：SelfCheck 拿真实响应片段做解码断言。
+struct ForumNotificationDTO: Decodable {
+    struct PostDTO: Decodable {
+        let id: String
+        let title: String?
+        let excerpt: String?
+    }
+
+    let id: String
+    let type: String?
+    let targetId: String?
+    let readAt: String?
+    let createdAt: String?
+    let actor: ForumAuthorDTO?
+    let post: PostDTO?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, actor, post
+        case targetId = "target_id"
+        case readAt = "read_at"
+        case createdAt = "created_at"
+    }
+
+    var notification: ForumNotification {
+        ForumNotification(
+            id: id,
+            type: type ?? "comment",
+            targetID: targetId ?? "",
+            readAt: DateParser.parseForum(readAt),
+            createdAt: DateParser.parseForum(createdAt),
+            actor: actor?.author,
+            post: post.map { ForumNotification.Post(id: $0.id, title: $0.title, excerpt: $0.excerpt ?? "") }
+        )
+    }
+}
+
+/// 非 private：SelfCheck 做解码断言。
+struct NotificationsResponseDTO: Decodable {
+    let notifications: [ForumNotificationDTO]
+    let nextCursor: String?
+    let unreadCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case notifications
+        case nextCursor = "next_cursor"
+        case unreadCount = "unread_count"
+    }
+}
+
 private struct HandbookSectionDTO: Decodable {
     struct ChildDTO: Decodable {
         let slug: String
@@ -1059,6 +1145,24 @@ final class ForumStore {
     private(set) var handbookUnavailable = false
     private var isLoadingHandbook = false
 
+    // 通知
+    struct NotificationPageState {
+        var items: [ForumNotification] = []
+        var nextCursor: String?
+        var isLoading = false
+        var isLoadingMore = false
+        var hasLoaded = false
+        var errorMessage: String?
+        /// true 表示需要登录（401）——纯登录态功能，UI 给登录引导而不是错误页。
+        var requiresLogin = false
+    }
+
+    private(set) var notifications = NotificationPageState()
+    /// 未读角标。**只**由通知接口下发的 `unread_count` 更新（mark-read 本地清零），
+    /// 不对已加载页自己数 —— 列表是分页的，数出来的只是冰山一角。
+    private(set) var unreadNotificationCount = 0
+    private var notificationsGeneration = 0
+
     init(client: ForumAPIClient = ForumAPIClient()) {
         self.client = client
     }
@@ -1226,6 +1330,87 @@ final class ForumStore {
         }
     }
 
+    // MARK: - 通知
+
+    /// 只刷未读数（拉 1 条拿 `unread_count`），给铃铛角标用。失败静默：
+    /// 角标晚一拍出现无碍浏览，不该因此弹错误。未登录时不该调（调用方看 isLoggedIn）。
+    func refreshUnreadNotificationCount() async {
+        guard let page = try? await client.notifications(limit: 1) else { return }
+        unreadNotificationCount = page.unreadCount
+    }
+
+    /// 通知列表首页。401 是正常路径（未登录）：requiresLogin，UI 给登录引导。
+    func refreshNotifications() async {
+        guard !notifications.isLoading else { return }
+        notificationsGeneration += 1
+        let generation = notificationsGeneration
+        notifications.isLoading = true
+        notifications.errorMessage = nil
+        notifications.requiresLogin = false
+        defer {
+            if notificationsGeneration == generation { notifications.isLoading = false }
+        }
+        do {
+            let page = try await client.notifications()
+            guard notificationsGeneration == generation else { return }
+            notifications = NotificationPageState(
+                items: page.items,
+                nextCursor: page.nextCursor,
+                hasLoaded: true
+            )
+            unreadNotificationCount = page.unreadCount
+        } catch {
+            if Self.isCancellation(error) { return }
+            guard notificationsGeneration == generation else { return }
+            notifications.hasLoaded = true
+            if let api = error as? ForumAPIClient.ForumAPIError, case .unauthorized = api {
+                notifications.requiresLogin = true
+            } else {
+                notifications.errorMessage = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+            }
+        }
+    }
+
+    /// 滚动到底加载下一页。失败静默，滚到底会自然重试。
+    func loadMoreNotifications() async {
+        let state = notifications
+        guard state.hasLoaded, !state.isLoading, !state.isLoadingMore,
+              let cursor = state.nextCursor else { return }
+        let generation = notificationsGeneration
+        notifications.isLoadingMore = true
+        defer {
+            if notificationsGeneration == generation { notifications.isLoadingMore = false }
+        }
+        do {
+            let page = try await client.notifications(cursor: cursor)
+            guard notificationsGeneration == generation else { return }
+            let existing = notifications.items
+            let merged = existing + page.items.filter { incoming in
+                !existing.contains { $0.id == incoming.id }
+            }
+            notifications.items = merged
+            notifications.nextCursor = page.nextCursor
+        } catch {
+            // 翻页失败静默。
+        }
+    }
+
+    /// 全部标记已读：**先清本地再发请求**（角标立即消失）。未读高亮该不该留
+    /// 由 UI 决定 —— 通知页在进入时先快照一份未读 id 再调这里。
+    func markAllNotificationsRead() async {
+        let hadUnread = unreadNotificationCount > 0 || notifications.items.contains { $0.isUnread }
+        guard hadUnread else { return }
+        unreadNotificationCount = 0
+        let now = Date()
+        notifications.items = notifications.items.map {
+            var copy = $0
+            if copy.readAt == nil { copy.readAt = now }
+            return copy
+        }
+        try? await client.markNotificationsRead()
+    }
+
     // MARK: - 登录态生命周期（由 SEUWikiApp 的统一监听调用，约定见仓库 AGENTS.md）
 
     /// 登出后调用：清空**全部**用户态数据（关注关系与关注流），防止下一个账号
@@ -1240,6 +1425,10 @@ final class ForumStore {
         // 清关注流并作废在途请求（generation 失效模式与 refresh 相同）。
         pages[.following] = nil
         generations[.following] = (generations[.following] ?? 0) + 1
+        // 通知同属纯用户态：列表与角标一并清掉，防换账号看到上一个账号的提醒。
+        notifications = NotificationPageState()
+        notificationsGeneration += 1
+        unreadNotificationCount = 0
     }
 
     // MARK: - Private

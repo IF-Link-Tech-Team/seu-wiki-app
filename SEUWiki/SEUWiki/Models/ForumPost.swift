@@ -290,6 +290,44 @@ enum ForumContentTargetType: String, Sendable {
     case post, comment
 }
 
+// MARK: - 通知
+
+/// 一条通知（`GET /api/notifications` 的 `notifications[]`）。
+///
+/// 契约要点（`src/lib/services/notifications.ts`）：
+/// - `type` 目前只有 comment / reply / like，target 只有 post；
+/// - `actor`（动作方被软删）与 `post`（目标帖已删/不可见）都可能为 null，条目仍下发；
+/// - `readAt == nil` 即未读。
+struct ForumNotification: Identifiable, Hashable, Sendable {
+    /// 目标帖摘要；帖子已删/不可见时整个为 nil（条目仍要渲染，不可点击）。
+    struct Post: Identifiable, Hashable, Sendable {
+        let id: String
+        var title: String?
+        var excerpt: String
+    }
+
+    let id: String
+    var type: String
+    /// 目标帖 id（target_type 目前只有 post）。
+    var targetID: String
+    var readAt: Date?
+    var createdAt: Date?
+    var actor: ForumAuthor?
+    var post: Post?
+
+    var isUnread: Bool { readAt == nil }
+
+    /// 动作文案：服务端只给 type 代码，文案归客户端。
+    var actionText: String {
+        switch type {
+        case "comment": "评论了你的帖子"
+        case "reply": "回复了你的评论"
+        case "like": "赞了你的帖子"
+        default: "与你互动了"
+        }
+    }
+}
+
 // MARK: - 展示辅助
 
 /// 数字紧凑格式：过万显示「x.x万」。

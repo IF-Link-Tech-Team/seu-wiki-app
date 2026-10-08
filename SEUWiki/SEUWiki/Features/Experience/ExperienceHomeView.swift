@@ -11,6 +11,7 @@ import SwiftUI
 /// 两者已随经验长文信源一并移除。
 struct ExperienceHomeView: View {
     @Environment(ForumStore.self) private var store
+    @State private var auth = AuthStore.shared
     @State private var showsProfile = false
     @State private var showsComposer = false
     @State private var tab: ForumFeedTab
@@ -41,12 +42,39 @@ struct ExperienceHomeView: View {
             .groupedBackground()
             .navigationTitle("经验")
             .toolbar {
+                // 通知入口：纯登录态功能，未登录不渲染（门禁只看 isLoggedIn，见 AGENTS.md）。
+                if auth.isLoggedIn {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink {
+                            ForumNotificationsView()
+                        } label: {
+                            Image(systemName: "bell")
+                                .overlay(alignment: .topTrailing) {
+                                    if store.unreadNotificationCount > 0 {
+                                        Text(store.unreadNotificationCount > 99 ? "99+" : "\(store.unreadNotificationCount)")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.accentColor, in: .capsule)
+                                            .offset(x: 10, y: -6)
+                                    }
+                                }
+                                .accessibilityLabel("通知")
+                        }
+                    }
+                }
                 // 发帖入口（登录后在编辑器内完成鉴权检查）。
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("发帖", systemImage: "square.and.pencil") {
                         showsComposer = true
                     }
                 }
+            }
+            // 登录态变化（含冷启动已登录）→ 刷一次未读角标；失败静默（store 内部吞掉）。
+            .task(id: auth.isLoggedIn) {
+                guard auth.isLoggedIn else { return }
+                await store.refreshUnreadNotificationCount()
             }
             .profileEntry(isPresented: $showsProfile)
             .appNavigationDestinations()

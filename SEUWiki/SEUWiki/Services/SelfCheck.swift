@@ -47,6 +47,7 @@ enum SelfCheck {
         checkForumDateParsing()
         checkForumPostContract()
         checkForumViewerContract()
+        checkForumNotificationContract()
         checkPersistence()
         let snapshot = results
         let failed = snapshot.filter { !$0.passed }
@@ -565,6 +566,59 @@ enum SelfCheck {
         let noCaps = ForumViewer(id: "u2", displayName: nil, forumRole: nil, capabilities: [])
         expect("契约/viewer 空能力数组", !noCaps.hasCapability("admin:content:delete"))
         expect("契约/viewer 展示名回退", noCaps.name == "东大同学", "实际 \(noCaps.name)")
+    }
+
+    // MARK: - 论坛通知契约
+
+    /// `GET /api/notifications` 的真实响应形状（src/lib/services/notifications.ts）：
+    /// snake_case、actor（动作方被软删）与 post（目标帖已删）都可能为 null，条目仍下发；
+    /// 角标只认服务端下发的 `unread_count`。与 Android `通知列表响应能解析` 断言同语义。
+    private static func checkForumNotificationContract() {
+        let json = """
+        {
+          "notifications": [
+            {
+              "id": "n1", "type": "comment", "target_type": "post", "target_id": "p1",
+              "read_at": null, "created_at": "2026-10-08T02:00:00.000Z",
+              "actor": { "id": "u1", "display_name": "Stella", "username": "stella", "avatar_url": null },
+              "post": { "id": "p1", "title": "宿舍门禁工具与边界", "excerpt": "面向部分东大宿舍…" }
+            },
+            {
+              "id": "n2", "type": "like", "target_type": "post", "target_id": "p2",
+              "read_at": "2026-10-07T10:00:00.000Z", "created_at": "2026-10-07T09:00:00.000Z",
+              "actor": null, "post": null
+            }
+          ],
+          "next_cursor": "bmV4dA",
+          "unread_count": 3
+        }
+        """
+        guard let data = json.data(using: .utf8),
+              let dto = try? JSONDecoder().decode(NotificationsResponseDTO.self, from: data)
+        else {
+            expect("契约/通知列表可解码", false, "字段名与后端不匹配")
+            return
+        }
+        expect("契约/通知角标来自 unread_count", dto.unreadCount == 3,
+               "实际 \(String(describing: dto.unreadCount))")
+        expect("契约/通知游标已解析", dto.nextCursor == "bmV4dA")
+        expect("契约/通知条目数", dto.notifications.count == 2)
+
+        let first = dto.notifications[0].notification
+        expect("契约/通知未读判定（read_at 为 null）", first.isUnread)
+        expect("契约/通知动作方已解析", first.actor?.name == "Stella",
+               "实际 \(String(describing: first.actor?.name))")
+        expect("契约/通知目标帖已解析", first.post?.title == "宿舍门禁工具与边界")
+        expect("契约/通知创建时间已解析", first.createdAt != nil)
+        expect("契约/通知动作文案", first.actionText == "评论了你的帖子",
+               "实际 \(first.actionText)")
+
+        let second = dto.notifications[1].notification
+        expect("契约/通知 actor 可为 null", second.actor == nil)
+        expect("契约/通知 post 可为 null（帖子已删）", second.post == nil)
+        expect("契约/通知已读判定", !second.isUnread)
+        expect("契约/点赞动作文案", second.actionText == "赞了你的帖子",
+               "实际 \(second.actionText)")
     }
 
     private static func checkPersistence() {
