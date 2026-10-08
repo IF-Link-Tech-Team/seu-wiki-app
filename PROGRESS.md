@@ -3,7 +3,7 @@
 ## 当前状态（2026-10-08）
 
 iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
-自检 161/161 通过，模拟器逐屏截图验收（浅色 + 深色）。
+自检 177/177 通过，模拟器逐屏截图验收（浅色 + 深色）。
 
 **2026-10-08：经验 tab 论坛化。** 经验 tab 从 seu-wiki-v2 文档接口迁移到论坛后端
 `forum.seu.wiki`：热门（论坛热榜，置顶优先）/ 关注（阶段 2，未部署显式标注）/
@@ -11,7 +11,15 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 原生发帖编辑器（标题选填 ≤160、正文 ≤20000、标签 ≤3 来自内嵌目录）；
 搜索的经验/手册信源改论坛 `/api/search`（pool 只留资讯）；个人页「帖子收藏」接
 `GET /api/bookmarks`（本机长文 slug 收藏保留）；删除 docs/experience 索引与全部
-编造帖子数据。发帖图片上传（`/api/media/upload` multipart）本期未做。
+编造帖子数据。
+
+**2026-10-08（第二轮）：内容管理 + 通知 + 发帖页重做。** 发帖页改为豆瓣式布局
+（板块胶囊选择 + PhotosPicker 多图，`/api/media/upload` multipart 上传）；
+帖子/评论支持作者编辑删除（`PATCH /api/posts/:id`、`DELETE /api/content/...`），
+管理员管理删除（`DELETE /api/admin/content/...`，viewer.capabilities 只控按钮可见性）；
+通知系统上线：经验页顶栏铃铛（未读角标）→ 通知列表（进页快照未读高亮一次、
+全部标记已读、点击跳帖），后端为 `GET /api/notifications` +
+`POST /api/notifications/mark-read`。
 
 ## 已完成
 
@@ -21,6 +29,9 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 - [x] `/api/site/pool?q=&type=feed` 通知搜索
 - [x] 论坛 `/api/posts`（hot offset 分页 / latest·tag keyset）、`/api/posts/{id}` 详情、`/view` 浏览 +1
 - [x] 论坛评论（单层楼中楼）、点赞/收藏 toggle、`GET /api/bookmarks`
+- [x] 论坛编辑/删除：`PATCH /api/posts/:id`、`DELETE /api/content/...`（作者）、`DELETE /api/admin/content/...`（管理删除）
+- [x] 发帖配图：`POST /api/media/upload`（multipart，PhotosPicker 多图统一转 JPEG）
+- [x] 论坛通知：`GET /api/notifications`（unread_count 角标）、`POST /api/notifications/mark-read`（空对象 body）
 - [x] 论坛 `/api/handbook/*` 东大生存手册（板块 + 消毒后的 `content_html` 文章）
 - [x] 论坛 `/api/search` 经验/手册信源（两组 keyset 分页，与通知信源各自成败）
 - [x] `/api/site/docs/{slug}` 长文详情：HTML 按标题切分正文、目录跳转、锚点定位（保留给本机长文收藏与调试深链）
