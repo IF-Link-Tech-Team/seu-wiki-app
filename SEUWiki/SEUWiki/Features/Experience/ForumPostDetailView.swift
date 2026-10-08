@@ -34,6 +34,22 @@ struct ForumPostDetailView: View {
     @State private var replyTarget: ForumComment?
     @State private var isSending = false
 
+    /// 论坛侧身份投影：只决定「编辑/删除/管理删除」按钮的可见性，
+    /// 登录门禁永远看 auth.isLoggedIn，真正的权限校验在服务端（403 兜底）。
+    @State private var viewer: ForumViewer?
+    @State private var showsEditor = false
+    /// 待确认的删除目标（帖或评论 + 是否管理删除）。
+    @State private var deleteTarget: DeleteTarget?
+    @State private var actionError: String?
+    @Environment(\.dismiss) private var dismiss
+
+    /// 删除确认弹窗的负载。Identifiable 供 `.alert(presenting:)` 使用。
+    private struct DeleteTarget: Identifiable {
+        let type: ForumContentTargetType
+        let id: String
+        let admin: Bool
+    }
+
     private var shownPost: ForumPost? { detail?.post ?? summary }
 
     var body: some View {
@@ -46,6 +62,7 @@ struct ForumPostDetailView: View {
                         handbookCard(link)
                     }
                     actionBar
+                    managementBar(post)
                     commentSection
                 } else if let errorMessage {
                     ContentUnavailableView {
@@ -79,6 +96,44 @@ struct ForumPostDetailView: View {
                 LoginView(auth: auth)
             }
         }
+        .sheet(isPresented: $showsEditor) {
+            if let post = shownPost {
+                ForumComposerView(
+                    editing: ForumComposerView.EditingContext(
+                        id: post.id,
+                        title: post.title ?? "",
+                        content: post.content
+                    ),
+                    onPublished: { Task { await load() } }
+                )
+            }
+        }
+        .alert(
+            deleteTarget?.admin == true ? "管理删除" : "删除",
+            item: $deleteTarget,
+            actions: { target in
+                Button("删除", role: .destructive) { Task { await performDelete(target) } }
+                Button("取消", role: .cancel) {}
+            },
+            message: { target in
+                Text(target.admin
+                     ? "以管理员身份删除这条内容？关联的评论、点赞等数据会一并删除，此操作无法恢复。"
+                     : "删除后无法恢复，确定删除吗？")
+            }
+        )
+        .alert("操作失败", isPresented: .constant(actionError != nil)) {
+            Button("好") { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+        .onChange(of: auth.isLoggedIn) { _, loggedIn in
+            // 换账号/登出后 viewer 是上个身份的投影，必须重取或清空。
+            if loggedIn {
+                Task { viewer = await client.me() }
+            } else {
+                viewer = nil
+            }
+        }
         .task { await load() }
     }
 
@@ -88,6 +143,8 @@ struct ForumPostDetailView: View {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
+        // viewer 与详情并行：viewer 只影响管理按钮可见性，失败就藏按钮。
+        async let viewerFetch = client.me()
         do {
             let loaded = try await client.postDetail(id: postID)
             detail = loaded
@@ -104,6 +161,7 @@ struct ForumPostDetailView: View {
         } catch {
             self.errorMessage = error.localizedDescription
         }
+        viewer = await viewerFetch
         await loadComments()
     }
 
@@ -290,6 +348,70 @@ struct ForumPostDetailView: View {
         }
     }
 
+    // MARK: - 作者自管与管理删除
+
+    /// 「编辑 / 删除 / 管理删除」行。可见性按 viewer 投影判断，
+    /// 服务端 403 兜底 —— 与仓库 AGENTS.md 的登录门禁规则不冲突
+    /// （viewer 不做登录门禁，只做授权入口的展示依据）。
+    @ViewBuilder
+    private func managementBar(_ post: ForumPost) -> some View {
+        let isAuthor = viewer != nil && post.author?.id == viewer?.id
+        let canAdminDelete = viewer?.hasCapability("admin:content:delete") == true
+        if isAuthor || (canAdminDelete && !isAuthor) {
+            HStack(spacing: 16) {
+                if isAuthor {
+                    Button {
+                        showsEditor = true
+                    } label: {
+                        Label("编辑", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        deleteTarget = DeleteTarget(type: .post, id: post.id, admin: false)
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                } else if canAdminDelete {
+                    Button(role: .destructive) {
+                        deleteTarget = DeleteTarget(type: .post, id: post.id, admin: true)
+                    } label: {
+                        Label("管理删除", systemImage: "trash")
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private func performDelete(_ target: DeleteTarget) async {
+        do {
+            if target.admin {
+                try await client.adminDeleteContent(target.type, id: target.id)
+            } else {
+                try await client.deleteContent(target.type, id: target.id)
+            }
+            if target.type == .post {
+                // 帖没了直接退出详情；信息流由各列表自己的刷新机制重拉。
+                dismiss()
+            } else {
+                await loadComments()
+                // 楼中楼层联删除会让计数减多条，以服务端权威值重新对齐。
+                if let fresh = try? await client.postDetail(id: postID) {
+                    commentsCount = fresh.post.commentsCount
+                }
+            }
+        } catch let error as ForumAPIClient.ForumAPIError {
+            if case .unauthorized = error {
+                showsLoginGuide = true
+            } else {
+                actionError = error.errorDescription
+            }
+        } catch {
+            actionError = "删除失败，请稍后重试。"
+        }
+    }
+
     // MARK: - 评论
 
     /// 顶层评论（parentID 为空），按时间正序。
@@ -356,9 +478,24 @@ struct ForumPostDetailView: View {
                 Text(comment.content)
                     .font(.subheadline)
                     .textSelection(.enabled)
-                Button("回复") {
-                    guard auth.isLoggedIn else { showsLoginGuide = true; return }
-                    replyTarget = comment
+                HStack(spacing: 14) {
+                    Button("回复") {
+                        guard auth.isLoggedIn else { showsLoginGuide = true; return }
+                        replyTarget = comment
+                    }
+                    // 评论作者可删自己的；moderator+ 可删任何评论（管理删除）。
+                    let isOwnComment = viewer != nil && comment.author?.id == viewer?.id
+                    let canAdminDelete = viewer?.hasCapability("admin:content:delete") == true
+                    if isOwnComment || canAdminDelete {
+                        Button(isOwnComment ? "删除" : "管理删除") {
+                            deleteTarget = DeleteTarget(
+                                type: .comment,
+                                id: comment.id,
+                                admin: !isOwnComment
+                            )
+                        }
+                        .foregroundStyle(.red)
+                    }
                 }
                 .font(.caption)
                 .buttonStyle(.borderless)

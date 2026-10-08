@@ -262,6 +262,34 @@ struct ForumFollow: Identifiable, Hashable, Sendable {
     var id: String { "\(targetType.rawValue):\(targetID)" }
 }
 
+// MARK: - 身份投影
+
+/// `/api/me` 返回的论坛侧身份投影。
+///
+/// 只用于**展示**授权入口（编辑/管理删除按钮的可见性），真正的门禁在服务端
+/// （越权调用只会 403）；登录门禁永远看 `AuthStore.isLoggedIn`，
+/// 不拿这个投影当登录判断（见仓库 AGENTS.md 账号体系规则 2）。
+struct ForumViewer: Identifiable, Hashable, Sendable {
+    let id: String
+    var displayName: String?
+    var forumRole: String?
+    var capabilities: [String]
+
+    var name: String {
+        if let displayName, !displayName.isEmpty { return displayName }
+        return "东大同学"
+    }
+
+    func hasCapability(_ capability: String) -> Bool {
+        capabilities.contains(capability)
+    }
+}
+
+/// 可删除内容的目标类型（作者自删与管理删除共用同一组路由参数）。
+enum ForumContentTargetType: String, Sendable {
+    case post, comment
+}
+
 // MARK: - 展示辅助
 
 /// 数字紧凑格式：过万显示「x.x万」。

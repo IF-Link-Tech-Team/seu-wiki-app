@@ -46,6 +46,7 @@ enum SelfCheck {
         checkForumTagCatalog()
         checkForumDateParsing()
         checkForumPostContract()
+        checkForumViewerContract()
         checkPersistence()
         let snapshot = results
         let failed = snapshot.filter { !$0.passed }
@@ -549,6 +550,22 @@ enum SelfCheck {
     }
 
     // MARK: - 持久化
+
+    /// viewer 投影只决定管理按钮可见性：能力判定必须与后端
+    /// `admin:content:delete` 字面量精确一致，拼错就永远看不到按钮。
+    private static func checkForumViewerContract() {
+        let moderator = ForumViewer(
+            id: "u1",
+            displayName: "管理",
+            forumRole: "moderator",
+            capabilities: ["admin:content:delete", "admin:posts:pin"]
+        )
+        expect("契约/viewer 能力命中", moderator.hasCapability("admin:content:delete"))
+        expect("契约/viewer 能力不命中", !moderator.hasCapability("admin:content:permanent-delete"))
+        let noCaps = ForumViewer(id: "u2", displayName: nil, forumRole: nil, capabilities: [])
+        expect("契约/viewer 空能力数组", !noCaps.hasCapability("admin:content:delete"))
+        expect("契约/viewer 展示名回退", noCaps.name == "东大同学", "实际 \(noCaps.name)")
+    }
 
     private static func checkPersistence() {
         expect("持久化/往返自检", ProfileStorage.runPersistenceSelfTest())

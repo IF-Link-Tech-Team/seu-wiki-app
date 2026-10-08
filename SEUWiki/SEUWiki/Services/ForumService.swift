@@ -238,6 +238,138 @@ struct ForumAPIClient: Sendable {
         return dto.post.id
     }
 
+    // MARK: - 身份投影与内容管理
+
+    /// `GET /api/me` —— 论坛侧身份投影（viewer）。
+    ///
+    /// 接口本身不 401：匿名回 `{viewer:null}`，所以这里返回可选值而不是抛错。
+    /// 任何网络/解析失败都按 nil 处理 —— viewer 只决定管理按钮的可见性，
+    /// 拿不到就一律不显示，服务端 403 兜底（见仓库 AGENTS.md 账号体系规则）。
+    func me() async -> ForumViewer? {
+        struct MeDTO: Decodable {
+            struct Viewer: Decodable {
+                let id: String
+                let displayName: String?
+                let forumRole: String?
+                let capabilities: [String]?
+            }
+            let viewer: Viewer?
+        }
+        guard let dto: MeDTO = try? await get("/api/me", query: [], auth: .optional) else {
+            return nil
+        }
+        return dto.viewer.map {
+            ForumViewer(
+                id: $0.id,
+                displayName: $0.displayName,
+                forumRole: $0.forumRole,
+                capabilities: $0.capabilities ?? []
+            )
+        }
+    }
+
+    /// `PATCH /api/posts/:id` —— 作者编辑自己的帖子。
+    ///
+    /// body 白名单只有 `title`/`content`（`posts/[id]/route.ts` 的 PATCH），
+    /// 标签不可改；`title` 传 nil 时该 key 不进 body，后端会存成 null（空标题语义）。
+    /// `content` 后端强制非空、≤20000 字，调用方先 trim。
+    func updatePost(id: String, title: String?, content: String) async throws {
+        struct Body: Encodable {
+            let title: String?
+            let content: String
+        }
+        struct UpdatedDTO: Decodable {
+            struct Post: Decodable { let id: String }
+            let post: Post
+        }
+        let _: UpdatedDTO = try await sendJSON(
+            "/api/posts/\(id)",
+            method: "PATCH",
+            body: Body(title: title, content: content),
+            auth: .required
+        )
+    }
+
+    /// `DELETE /api/content/:type/:id` —— 作者删除自己的帖/评。
+    ///
+    /// `confirmation` 字面量必须**精确等于** `delete_owned_content`
+    /// （`content/[targetType]/[targetId]/route.ts`），少一个字符就 400。
+    func deleteContent(_ targetType: ForumContentTargetType, id: String) async throws {
+        struct Body: Encodable { let confirmation = "delete_owned_content" }
+        struct DeletedDTO: Decodable { let deleted: Bool? }
+        let _: DeletedDTO = try await sendJSON(
+            "/api/content/\(targetType.rawValue)/\(id)",
+            method: "DELETE",
+            body: Body(),
+            auth: .required
+        )
+    }
+
+    /// `DELETE /api/admin/content/:type/:id` —— 管理删除。
+    ///
+    /// 需要 `admin:content:delete` 能力（owner/admin/moderator）；与作者自删
+    /// 不同路由、confirmation 为 `admin_delete`，服务端写 `admin_delete` 审计。
+    func adminDeleteContent(_ targetType: ForumContentTargetType, id: String) async throws {
+        struct Body: Encodable { let confirmation = "admin_delete" }
+        struct DeletedDTO: Decodable { let deleted: Bool? }
+        let _: DeletedDTO = try await sendJSON(
+            "/api/admin/content/\(targetType.rawValue)/\(id)",
+            method: "DELETE",
+            body: Body(),
+            auth: .required
+        )
+    }
+
+    /// `POST /api/media/upload`（multipart/form-data）—— 给已存在的帖子传一张配图。
+    ///
+    /// 契约（`media/upload/route.ts` + `lib/media/upload-handler.mjs`）：
+    /// - 字段：`file`（二进制）、`purpose=post-image`、`postId=<uuid>`；
+    /// - 仅 jpeg/png/webp、单张 ≤5MB，服务端嗅探内容与声明类型必须一致；
+    /// - 帖子必须已存在且当前用户是作者（顺序永远是先建帖/保存，再传图）；
+    /// - 成功 201 `{media:{path, contentType, size, assetId}}`。
+    /// Bearer token 豁免同源 CSRF 校验，原生端没有 Origin 也能传。
+    func uploadPostImage(postID: String, data: Data, contentType: String = "image/jpeg") async throws {
+        let boundary = "seuwiki-\(UUID().uuidString)"
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+        components?.percentEncodedPath = "/api/media/upload"
+        // host 白名单：token 只发给论坛本域（与 perform 的约定一致）。
+        guard let url = components?.url, url.host() == baseURL.host() else {
+            throw ForumAPIError.badURL
+        }
+        guard let token = await tokenProvider(), !token.isEmpty else {
+            throw ForumAPIError.unauthorized
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        var body = Data()
+        func field(_ name: String, _ value: String) {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
+        }
+        field("purpose", "post-image")
+        field("postId", postID)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"image.jpg\"\r\nContent-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        struct UploadDTO: Decodable {
+            struct Media: Decodable { let path: String }
+            let media: Media
+        }
+        let (responseData, response) = try await session.data(for: request)
+        let _: UploadDTO = try decodeResponse(
+            data: responseData,
+            response: response,
+            path: "/api/media/upload",
+            decode: UploadDTO.self
+        )
+    }
+
     // MARK: - 手册
 
     /// GET /api/handbook/sections → 8 主题 + 子标签 + 文章数。
