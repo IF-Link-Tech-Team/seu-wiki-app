@@ -43,8 +43,8 @@ struct ForumPostDetailView: View {
     @State private var actionError: String?
     @Environment(\.dismiss) private var dismiss
 
-    /// 删除确认弹窗的负载。Identifiable 供 `.alert(presenting:)` 使用。
-    private struct DeleteTarget: Identifiable {
+    /// 删除确认弹窗的负载。
+    private struct DeleteTarget {
         let type: ForumContentTargetType
         let id: String
         let admin: Bool
@@ -110,7 +110,11 @@ struct ForumPostDetailView: View {
         }
         .alert(
             deleteTarget?.admin == true ? "管理删除" : "删除",
-            item: $deleteTarget,
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            ),
+            presenting: deleteTarget,
             actions: { target in
                 Button("删除", role: .destructive) { Task { await performDelete(target) } }
                 Button("取消", role: .cancel) {}
