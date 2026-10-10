@@ -8,11 +8,14 @@ import UIKit
 /// （见 `apps/api/src/lib/server.ts` 的挂载与 `apps/api/src/routes/site.ts` 全部 GET），
 /// 所以挂 token 有两个纯粹的坏处：白白扩大凭证暴露面，且每刷一次 feed 都会把
 /// 续期链路（并发合并、错误分类）拽进来，凭空多出一堆能把自己登出局的路径。
-/// 个性化**不依赖登录** —— for-you 的画像参数直接来自本地 `UserProfile`。
 /// 论坛（forum.seu.wiki）需要 Bearer token 的请求走单独的 `ForumAPIClient`
 /// （`Services/ForumService.swift`，带 host 白名单），token 不会出现在这两个域名之外。
 ///
-/// 缓存：timeline/for-you 由服务端发 ETag，走 `URLCache`（见 `makeSession`）。
+/// 缓存：timeline/pool 由服务端发 ETag，走 `URLCache`（见 `makeSession`）。
+///
+/// 信息架构与网页端 2026-10-08 重构（seu-wiki-v2 commit 998ce5d）对齐：
+/// 精选走 `timeline`，一手 / 分类 / 全部走 `pool`（page 分页），
+/// for-you 个性化接口已被网页端删除，这里同步移除。
 struct FeedAPIClient: Sendable {
     var baseURL = URL(string: "https://seu.wiki")!
     var session: URLSession = .shared
@@ -46,32 +49,18 @@ struct FeedAPIClient: Sendable {
 
     // MARK: - 资讯
 
-    /// GET /api/site/timeline?channel=all&category=&cursor=&limit=
-    func timeline(category: FeedCategory? = nil, cursor: String? = nil) async throws -> (items: [FeedItem], nextCursor: String?) {
+    /// GET /api/site/timeline?channel=all&cursor=&limit= → 「精选」tab。
+    ///
+    /// 网页端 2026-10-08 重构后 timeline 只剩精选这一个用途（selected 门槛流，
+    /// 不传 category）；分类 tab 已改走 pool，这里同步不再暴露 category 参数。
+    func timeline(cursor: String? = nil) async throws -> (items: [FeedItem], nextCursor: String?) {
         var query = [
             URLQueryItem(name: "channel", value: "all"),
             URLQueryItem(name: "limit", value: String(pageSize)),
         ]
-        if let category { query.append(URLQueryItem(name: "category", value: category.rawValue)) }
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         let response: TimelineResponseDTO = try await get("/api/site/timeline", query: query)
         return (response.cards.map { $0.item.feedItem() }, response.nextCursor)
-    }
-
-    /// GET /api/site/for-you?college=&degree=&grade=&interests=&cursor=&limit=
-    /// 画像参数直接透传 UserProfile；interests 逗号分隔，URLQueryItem 自动编码中文。
-    ///
-    /// ⚠️ **cursor 绑定画像**：后端把画像摘要编进 cursor（`foryou.ts`），改了学院/
-    /// 学段/年级/兴趣之后再用旧 cursor 会被判为 `invalid_cursor` 返回 400。
-    /// 调用方（`FeedStore`）必须在这四种参数任一变化时丢掉旧 cursor。
-    func forYou(profile: UserProfile, cursor: String? = nil) async throws -> (items: [FeedItem], nextCursor: String?) {
-        var query = [URLQueryItem(name: "limit", value: String(pageSize))]
-        for (key, value) in profile.forYouParams {
-            query.append(URLQueryItem(name: key, value: value))
-        }
-        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
-        let response: ForYouResponseDTO = try await get("/api/site/for-you", query: query)
-        return (response.items.map { $0.feedItem() }, response.nextCursor)
     }
 
     /// GET /api/site/items/:id → 详情（含 body 与 links.original）。
@@ -116,18 +105,29 @@ struct FeedAPIClient: Sendable {
         )
     }
 
-    // MARK: - 资讯搜索
+    // MARK: - 资讯 pool（搜索 + 无门槛浏览）
 
-    /// GET /api/site/pool?q=&type=feed&page= → 搜索资讯动态。
+    /// GET /api/site/pool?q=&type=feed&channel=&category=&page= → 全量无门槛流（page 分页）。
     ///
-    /// pool 还接受 `type=all`（同时返回长文 `docs` 命中），但 App 的经验/手册
-    /// 搜索已改走论坛 `/api/search`（见 `SearchStore`），这里固定只搜资讯。
-    func pool(query: String, page: Int = 1) async throws -> PoolResult {
-        let response: PoolResponseDTO = try await get("/api/site/pool", query: [
-            URLQueryItem(name: "q", value: query),
+    /// 三种用法共用这一个端点（契约见 seu-wiki-v2 `packages/contracts/src` 的 PoolResponse）：
+    /// - **搜索**：带 `q`（`SearchStore`）；
+    /// - **一手**：`channel=firstParty`（资讯页「一手」tab）；
+    /// - **分类 / 全部**：`category=<key>` 或都不带（资讯页分类 tab 与「全部」tab）。
+    ///
+    /// 固定 `type=feed`：pool 还接受 `type=all`（同时返回长文 `docs` 命中），但 App 的
+    /// 经验/手册搜索已改走论坛 `/api/search`（见 `SearchStore`），这里只要资讯。
+    /// 无 `q` 时 `docs` 恒为空数组，`type` 参数对结果无影响。
+    ///
+    /// pool 固定每页 40 条、page 从 1 起；`hasMore = page < pageCount`（见 `PoolResult`）。
+    func pool(query: String? = nil, channel: String? = nil, category: FeedCategory? = nil, page: Int = 1) async throws -> PoolResult {
+        var queryItems = [
             URLQueryItem(name: "type", value: "feed"),
             URLQueryItem(name: "page", value: String(page)),
-        ])
+        ]
+        if let query { queryItems.append(URLQueryItem(name: "q", value: query)) }
+        if let channel { queryItems.append(URLQueryItem(name: "channel", value: channel)) }
+        if let category { queryItems.append(URLQueryItem(name: "category", value: category.rawValue)) }
+        let response: PoolResponseDTO = try await get("/api/site/pool", query: queryItems)
         return PoolResult(
             items: response.items.map { $0.feedItem() },
             page: response.page,
@@ -195,6 +195,9 @@ struct PoolResult: Sendable {
     var page: Int
     var pageCount: Int
     var total: Int
+
+    /// pool 的分页判定（与网页端一致）：`page < pageCount` 才还有下一页。
+    var hasMore: Bool { page < pageCount }
 }
 
 /// 长文路由值：`DocDetailView` 的 navigationDestination payload。
@@ -347,7 +350,8 @@ private struct CampusDTO: Decodable {
     }
 }
 
-/// 对应 `FeedItemSummary`；for-you 额外有 matchReasons / rankScore（见 `ForYouItem`）。
+/// 对应 `FeedItemSummary`；matchReasons / rankScore 是已下线的 for-you 字段，
+/// 当前接口不会下发，保留可空解码只为兼容旧响应。
 private struct FeedItemSummaryDTO: Decodable {
     let id: String
     let title: String
@@ -387,11 +391,6 @@ private struct TimelineResponseDTO: Decodable {
         let item: FeedItemSummaryDTO
     }
     let cards: [Card]
-    let nextCursor: String?
-}
-
-private struct ForYouResponseDTO: Decodable {
-    let items: [FeedItemSummaryDTO]
     let nextCursor: String?
 }
 

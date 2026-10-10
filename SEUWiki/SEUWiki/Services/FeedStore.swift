@@ -1,7 +1,9 @@
 import Foundation
 
-/// 资讯模块的状态仓库：每个 console scope（为你精选 / 全部 / 各分类）各自维护
-/// 一页 cursor 分页状态。
+/// 资讯模块的状态仓库：每个 console scope（精选 / 一手 / 各分类 / 全部）各自维护
+/// 一份分页状态。精选走 timeline 的 cursor 分页，一手 / 分类 / 全部走 pool 的
+/// page 分页（与网页端 2026-10-08 信息架构重构对齐），两种分页在同一份
+/// `PageState` 里并存（`nextCursor` 与 `nextPage` 只会有一个非空）。
 ///
 /// 网络失败时**不再回退演示数据** —— 早期版本失败就塞 `PreviewSample` 并标
 /// `isOffline`，用户会以为看到了真内容。资讯是这个 App 的核心，编造的条目比
@@ -12,7 +14,10 @@ import Foundation
 final class FeedStore {
     struct PageState {
         var items: [FeedItem] = []
+        /// timeline（精选）的下一页游标。
         var nextCursor: String?
+        /// pool（一手 / 分类 / 全部）的下一页页码（1 起）。
+        var nextPage: Int?
         var isLoading = false
         var isLoadingMore = false
         var hasLoaded = false
@@ -26,10 +31,8 @@ final class FeedStore {
     private var pages: [FeedScope: PageState] = [:]
     private var detailCache: [String: FeedItemDetail] = [:]
     /// 每个 scope 的请求代号。刷新与翻页并发时，返回值要核对代号 ——
-    /// 否则旧画像的翻页结果会拼到新列表上。
+    /// 否则旧请求的翻页结果会拼到新列表上。
     private var generations: [FeedScope: Int] = [:]
-    /// for-you 当前的画像指纹。后端把画像编进 cursor，画像一变旧 cursor 立即作废。
-    private var forYouFingerprint: String?
 
     init(client: FeedAPIClient = FeedAPIClient()) {
         self.client = client
@@ -52,24 +55,14 @@ final class FeedStore {
     }
 
     /// 首次进入某个 scope 时加载；已加载过的 scope 直接复用。
-    func loadIfNeeded(scope: FeedScope, profile: UserProfile) async {
+    func loadIfNeeded(scope: FeedScope) async {
         guard !page(for: scope).hasLoaded else { return }
-        await refresh(scope: scope, profile: profile)
+        await refresh(scope: scope)
     }
 
     /// 下拉刷新 / 首次加载。
-    func refresh(scope: FeedScope, profile: UserProfile) async {
+    func refresh(scope: FeedScope) async {
         guard !page(for: scope).isLoading else { return }
-
-        // for-you 的 cursor 与画像绑定：画像变了必须丢掉旧 cursor，
-        // 否则后端每次都回 400 invalid_cursor，列表会永远停在旧画像的结果上。
-        if scope == .forYou {
-            let fingerprint = profile.profileFingerprint
-            if forYouFingerprint != fingerprint {
-                forYouFingerprint = fingerprint
-                pages[scope] = PageState()
-            }
-        }
 
         let generation = nextGeneration(for: scope)
         pages[scope, default: PageState()].isLoading = true
@@ -78,11 +71,12 @@ final class FeedStore {
             if generations[scope] == generation { pages[scope]?.isLoading = false }
         }
         do {
-            let (items, nextCursor) = try await fetch(scope: scope, profile: profile, cursor: nil)
+            let result = try await fetch(scope: scope, cursor: nil, page: 1)
             guard generations[scope] == generation else { return }  // 已被更新的请求接管
             pages[scope] = PageState(
-                items: Self.distinct(items),
-                nextCursor: nextCursor,
+                items: Self.distinct(result.items),
+                nextCursor: result.nextCursor,
+                nextPage: result.nextPage,
                 hasLoaded: true,
                 isOffline: false,
                 errorMessage: nil
@@ -92,6 +86,7 @@ final class FeedStore {
             guard generations[scope] == generation else { return }
             var state = page(for: scope)
             state.nextCursor = nil
+            state.nextPage = nil
             state.hasLoaded = true
             state.isOffline = true
             state.errorMessage = Self.describe(error)
@@ -100,10 +95,11 @@ final class FeedStore {
     }
 
     /// 滚动到底加载下一页。失败静默，下次滚动到底会再试。
-    func loadMore(scope: FeedScope, profile: UserProfile) async {
+    func loadMore(scope: FeedScope) async {
         let state = page(for: scope)
-        guard state.hasLoaded, !state.isLoading, !state.isLoadingMore, !state.isOffline,
-              let cursor = state.nextCursor else { return }
+        guard state.hasLoaded, !state.isLoading, !state.isLoadingMore, !state.isOffline else { return }
+        // 两种分页只会有一个 token 非空；都没有就是到底了。
+        guard state.nextCursor != nil || state.nextPage != nil else { return }
 
         let generation = generations[scope] ?? 0
         pages[scope]?.isLoadingMore = true
@@ -111,12 +107,13 @@ final class FeedStore {
             if generations[scope] == generation { pages[scope]?.isLoadingMore = false }
         }
         do {
-            let (items, nextCursor) = try await fetch(scope: scope, profile: profile, cursor: cursor)
+            let result = try await fetch(scope: scope, cursor: state.nextCursor, page: state.nextPage ?? 1)
             // 刷新与翻页并发时，刷新已经重置了列表：这次的结果直接作废。
             guard generations[scope] == generation else { return }
             // 按 id 去重（实现见 `Paging.merge`，被 `SelfCheck` 覆盖）。
-            pages[scope]?.items = Paging.merge(existing: pages[scope]?.items ?? [], incoming: items)
-            pages[scope]?.nextCursor = nextCursor
+            pages[scope]?.items = Paging.merge(existing: pages[scope]?.items ?? [], incoming: result.items)
+            pages[scope]?.nextCursor = result.nextCursor
+            pages[scope]?.nextPage = result.nextPage
         } catch {
             // 翻页失败静默：列表还有内容，不必打断用户；滚到底会自然重试。
         }
@@ -138,14 +135,23 @@ final class FeedStore {
         return next
     }
 
-    private func fetch(scope: FeedScope, profile: UserProfile, cursor: String?) async throws -> (items: [FeedItem], nextCursor: String?) {
+    /// scope → 端点路由（与网页端 tab 一一对应）：
+    /// 精选 → timeline（cursor 分页）；一手 / 分类 / 全部 → pool（page 分页，
+    /// `hasMore = page < pageCount`）。
+    private func fetch(scope: FeedScope, cursor: String?, page: Int) async throws -> (items: [FeedItem], nextCursor: String?, nextPage: Int?) {
         switch scope {
-        case .forYou:
-            try await client.forYou(profile: profile, cursor: cursor)
-        case .all:
-            try await client.timeline(cursor: cursor)
+        case .featured:
+            let result = try await client.timeline(cursor: cursor)
+            return (result.items, result.nextCursor, nil)
+        case .firstParty:
+            let result = try await client.pool(channel: "firstParty", page: page)
+            return (result.items, nil, result.hasMore ? result.page + 1 : nil)
         case .category(let category):
-            try await client.timeline(category: category, cursor: cursor)
+            let result = try await client.pool(category: category, page: page)
+            return (result.items, nil, result.hasMore ? result.page + 1 : nil)
+        case .all:
+            let result = try await client.pool(page: page)
+            return (result.items, nil, result.hasMore ? result.page + 1 : nil)
         }
     }
 

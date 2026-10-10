@@ -1,14 +1,18 @@
 import SwiftUI
 
-/// 资讯页 console 选项：为你精选 / 全部 / 8 个资讯分类。
+/// 资讯页 console 选项：精选 / 一手 / 8 个资讯分类 / 全部。
+/// 与网页端 tab 行（seu-wiki-v2 2026-10-08 信息架构重构）逐一对齐：
+/// 精选走 timeline，一手 / 分类 / 全部走 pool；for-you 已被网页端删除，这里同步移除。
 enum FeedScope: Hashable, Identifiable {
-    case forYou
+    case featured
+    case firstParty
     case all
     case category(FeedCategory)
 
     var id: String {
         switch self {
-        case .forYou: "forYou"
+        case .featured: "featured"
+        case .firstParty: "firstParty"
         case .all: "all"
         case .category(let category): category.rawValue
         }
@@ -16,13 +20,15 @@ enum FeedScope: Hashable, Identifiable {
 
     var title: String {
         switch self {
-        case .forYou: "为你精选"
+        case .featured: "精选"
+        case .firstParty: "一手"
         case .all: "全部"
         case .category(let category): category.name
         }
     }
 
-    static let scopes: [FeedScope] = [.forYou, .all] + FeedCategory.allCases.map { .category($0) }
+    /// 顺序即 tab 行顺序：精选、一手、8 个分类、全部。
+    static let scopes: [FeedScope] = [.featured, .firstParty] + FeedCategory.allCases.map { .category($0) } + [.all]
 }
 
 /// 「全部」列表的筛选条件。
@@ -59,7 +65,7 @@ struct FeedHomeView: View {
     @Environment(UserProfile.self) private var profile
     @Environment(FeedStore.self) private var store
     @State private var showsProfile = false
-    @State private var scope: FeedScope = .forYou
+    @State private var scope: FeedScope = .featured
     @State private var filter = FeedFilter()
     @State private var showsFilter = false
     /// 点提醒通知要打开的资讯 id，由 `RootTabView` 投递、消费后清空。
@@ -71,31 +77,41 @@ struct FeedHomeView: View {
     var body: some View {
         NavigationStack(path: $path) {
             // ConsoleBar 用 `.safeAreaBar(edge: .top)` 固定在导航栏下方。
-            // 放在 ScrollView 的 VStack 里会随内容一起滚走 —— 资讯有 10 个 scope，
+            // 放在 ScrollView 的 VStack 里会随内容一起滚走 —— 资讯有 11 个 scope，
             // 用户往下翻一屏就找不到 scope 切换器了，得滚回顶部才行。
             Group {
                     switch scope {
-                    case .forYou:
-                        ForYouFeedList(
-                            page: store.page(for: .forYou),
-                            onRefresh: { await store.refresh(scope: .forYou, profile: profile) },
-                            onLoadMore: { await store.loadMore(scope: .forYou, profile: profile) }
+                    case .featured:
+                        FeedItemList(
+                            items: store.page(for: .featured).items,
+                            page: store.page(for: .featured),
+                            emptyMessage: "暂无精选资讯",
+                            onRefresh: { await store.refresh(scope: .featured) },
+                            onLoadMore: { await store.loadMore(scope: .featured) }
+                        )
+                    case .firstParty:
+                        FeedItemList(
+                            items: store.page(for: .firstParty).items,
+                            page: store.page(for: .firstParty),
+                            emptyMessage: "暂无一手资讯",
+                            onRefresh: { await store.refresh(scope: .firstParty) },
+                            onLoadMore: { await store.loadMore(scope: .firstParty) }
                         )
                     case .all:
                         FeedItemList(
                             items: allItems,
                             page: store.page(for: .all),
                             emptyMessage: filter.isActive ? "没有符合条件的资讯，试试调整筛选条件" : "暂无资讯",
-                            onRefresh: { await store.refresh(scope: .all, profile: profile) },
-                            onLoadMore: { await store.loadMore(scope: .all, profile: profile) }
+                            onRefresh: { await store.refresh(scope: .all) },
+                            onLoadMore: { await store.loadMore(scope: .all) }
                         )
                     case .category(let category):
                         FeedItemList(
                             items: store.page(for: .category(category)).items,
                             page: store.page(for: .category(category)),
                             emptyMessage: "该分类暂无资讯",
-                            onRefresh: { await store.refresh(scope: .category(category), profile: profile) },
-                            onLoadMore: { await store.loadMore(scope: .category(category), profile: profile) }
+                            onRefresh: { await store.refresh(scope: .category(category)) },
+                            onLoadMore: { await store.loadMore(scope: .category(category)) }
                         )
                     }
                 }
@@ -121,7 +137,7 @@ struct FeedHomeView: View {
                 FeedFilterView(filter: $filter)
             }
             .task(id: scope) {
-                await store.loadIfNeeded(scope: scope, profile: profile)
+                await store.loadIfNeeded(scope: scope)
             }
             // `initial: true` 是必需的：冷启动点通知时，`RootTabView` 在本视图
             // **第一次求值之前**就把 id 投递过来了（它要先切 tab，本视图才被创建）。
@@ -140,63 +156,6 @@ struct FeedHomeView: View {
     /// 「全部」：筛选条件在客户端应用（分类多选直接匹配，学院/学段对受众未知的线上数据不剔除）。
     private var allItems: [FeedItem] {
         store.page(for: .all).items.filter { filter.matches($0, profile: profile) }
-    }
-}
-
-/// 「为你精选」：个性化卡片流，命中理由显示为 accent 色 chip。
-private struct ForYouFeedList: View {
-    let page: FeedStore.PageState
-    var onRefresh: () async -> Void
-    var onLoadMore: () async -> Void
-
-    var body: some View {
-        ScrollView {
-            if page.isLoading, page.items.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 80)
-            } else if page.items.isEmpty {
-                if page.isOffline {
-                    ContentUnavailableView {
-                        Label("加载失败", systemImage: "wifi.exclamationmark")
-                    } description: {
-                        Text(page.errorMessage ?? "暂时无法连接服务器")
-                    } actions: {
-                        Button("重试") { Task { await onRefresh() } }
-                            .buttonStyle(.borderedProminent)
-                    }
-                    .padding(.top, 60)
-                } else {
-                    ContentUnavailableView("暂无资讯", systemImage: "newspaper", description: Text("暂时没有为你精选的资讯"))
-                        .padding(.top, 80)
-                }
-            } else {
-                LazyVStack(spacing: 12) {
-                    if page.isOffline {
-                        FeedOfflineBanner(message: page.errorMessage) {
-                            Task { await onRefresh() }
-                        }
-                    }
-                    ForEach(page.items) { item in
-                        NavigationLink(value: item) {
-                            ForYouCard(item: item)
-                        }
-                        .buttonStyle(.plain)
-                        .onAppear {
-                            if item.id == page.items.last?.id {
-                                Task { await onLoadMore() }
-                            }
-                        }
-                    }
-                    if page.isLoadingMore {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .padding()
-            }
-        }
-        .refreshable { await onRefresh() }
     }
 }
 
@@ -223,58 +182,6 @@ struct FeedOfflineBanner: View {
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct ForYouCard: View {
-    let item: FeedItem
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: item.category.systemImage)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 28, height: 28)
-                    .background(Color.accentColor.opacity(0.12), in: .circle)
-
-                Text(item.sourceName)
-                Text("·")
-                RelativeTimeText(date: item.publishedAt)
-
-                Spacer(minLength: 4)
-
-                if item.isSelected {
-                    Label("精选", systemImage: "star.fill")
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            Text(item.title)
-                .font(.headline)
-                .lineLimit(2)
-
-            Text(item.summary)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-
-            if !item.matchReasons.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(item.matchReasons, id: \.self) { reason in
-                        Text(reason)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.12), in: .capsule)
-                    }
-                }
-            }
-        }
-        .cardStyle()
     }
 }
 

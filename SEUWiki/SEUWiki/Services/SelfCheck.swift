@@ -35,6 +35,8 @@ enum SelfCheck {
         checkRelativeTime()
         checkGPA()
         checkPaginationDedup()
+        checkFeedScopes()
+        checkPoolPagination()
         checkSlugEncoding()
         checkDocDetailContract()
         checkProfileFingerprint()
@@ -157,7 +159,7 @@ enum SelfCheck {
     // MARK: - 分页去重
 
     private static func checkPaginationDedup() {
-        // for-you 的排序会随内容热度漂移，跨页出现重复 id 是现实场景。
+        // timeline 与 pool 的排序会随内容热度漂移，跨页出现重复 id 是现实场景。
         // 不去重时 ForEach 行为未定义，Android 上会直接抛 key 重复崩溃。
         let a = FeedItem(id: "1", title: "a", summary: "", sourceName: "s", category: .news,
                          tags: [], publishedAt: .now, originalURL: nil, score: 0,
@@ -168,6 +170,33 @@ enum SelfCheck {
         let merged = Paging.merge(existing: [a, b], incoming: [b, a])
         expect("分页/追加去重", merged.count == 2, "实际 \(merged.count)")
         expect("分页/去重后顺序稳定", merged.map(\.id) == ["1", "2"])
+    }
+
+    // MARK: - 资讯信息流信息架构
+
+    /// 与网页端 2026-10-08 信息架构重构（seu-wiki-v2 commit 998ce5d）对齐，
+    /// 与 Android `SelfCheckTest` 同语义：tab 行 = 精选 / 一手 / 8 分类 / 全部，
+    /// for-you 已删除。
+    private static func checkFeedScopes() {
+        let scopes = FeedScope.scopes
+        expect("资讯scope/共 11 个", scopes.count == 11, "实际 \(scopes.count)")
+        expect("资讯scope/顺序与网页端 tab 行一致",
+               scopes.map(\.title) == ["精选", "一手", "教务", "奖助", "竞赛科研", "交流升学", "实习就业", "社团活动", "生活服务", "校园新闻", "全部"],
+               "实际 \(scopes.map(\.title))")
+        // id 进 ConsoleBar 的 selection，必须全局唯一且稳定。
+        expect("资讯scope/id 无重复", Set(scopes.map(\.id)).count == scopes.count)
+        expect("资讯scope/不含 for-you", !scopes.contains { $0.id == "forYou" })
+    }
+
+    /// pool 是 page 分页：`hasMore = page < pageCount`（与网页端一致，与 Android 同语义）。
+    /// 判错方向（写成 <=）会在末页再发一个必然空集的请求，判反了则永远翻不到第二页。
+    private static func checkPoolPagination() {
+        let mid = PoolResult(items: [], page: 2, pageCount: 3, total: 100)
+        let last = PoolResult(items: [], page: 3, pageCount: 3, total: 100)
+        let single = PoolResult(items: [], page: 1, pageCount: 1, total: 5)
+        expect("pool分页/中间页有更多", mid.hasMore)
+        expect("pool分页/末页无更多", !last.hasMore)
+        expect("pool分页/单页无更多", !single.hasMore)
     }
 
     // MARK: - slug 编码
@@ -249,8 +278,8 @@ enum SelfCheck {
         let before = a.profileFingerprint
         a.grade = "大四"
         let after = a.profileFingerprint
-        // 后端把画像编进 for-you 的 cursor，画像一变指纹就必须变，
-        // 否则旧 cursor 会被当成有效游标一直用下去，永远 400。
+        // for-you 接口已下线；指纹保留为「画像是否变化」的标识，
+        // 语义不变：画像一变指纹就必须变，相同画像必须稳定。
         expect("画像指纹/变化后不同", before != after)
         expect("画像指纹/相同画像稳定", a.profileFingerprint == after)
         expect("画像指纹/含学段", a.profileFingerprint.contains("grade="))

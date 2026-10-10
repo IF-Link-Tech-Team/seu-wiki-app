@@ -46,7 +46,7 @@ struct CampusAudience: Codable, Hashable {
     }
 }
 
-/// 一条资讯，对应 seu-wiki-v2 `FeedItemSummary`（/api/site/timeline、/api/site/for-you）。
+/// 一条资讯，对应 seu-wiki-v2 `FeedItemSummary`（/api/site/timeline、/api/site/pool）。
 struct FeedItem: Identifiable, Codable, Hashable {
     let id: String
     var title: String          // AI 改写的中文标题
@@ -59,7 +59,7 @@ struct FeedItem: Identifiable, Codable, Hashable {
     var score: Int             // 0–100 精选分
     var isSelected: Bool       // 是否精选
     var audience: CampusAudience
-    var matchReasons: [String] = []  // for-you 命中理由（如「你的学院」)
+    var matchReasons: [String] = []  // for-you 命中理由；for-you 已下线，当前接口不下发，仅 Preview 样例使用
 
     /// 只知道 id 时的占位条目。
     ///
