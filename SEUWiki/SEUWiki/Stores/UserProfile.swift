@@ -1,7 +1,9 @@
 import Foundation
 import SwiftUI
 
-/// 用户画像与本地的 app 级状态。学院/学段/年级/兴趣对应 seu-wiki-v2 的 for-you 画像参数。
+/// 用户画像与本地的 app 级状态。学院/学段/年级/兴趣原先是 for-you 画像参数；
+/// 网页端 for-you 已下线（2026-10-08 信息架构重构），资讯流不再消费画像，
+/// 数据保留在本机供其他功能使用。
 /// 所有可变属性在写入侧自动持久化到 UserDefaults（见 ProfileStorage），调用方无感知。
 @Observable
 final class UserProfile {
@@ -78,10 +80,10 @@ final class UserProfile {
         return reminders.filter { $0.dueDate < now }.sorted { $0.dueDate < $1.dueDate }
     }
 
-    /// for-you 的画像参数（后端 `parseForYouProfile` 读的就是这四个）。
+    /// 画像参数（原 for-you 接口的 `parseForYouProfile` 读的就是这四个）。
     ///
-    /// 集中在这里而不是散在请求构造里，是为了让 [profileFingerprint] 与实际发出去的
-    /// 参数**永远一致** —— 两者一旦分叉，就会出现「改了画像但 cursor 判定没变」。
+    /// for-you 接口已随网页端 2026-10-08 重构下线，这组参数当前没有网络消费方，
+    /// 保留它是为了让 [profileFingerprint] 仍能作为「画像是否变化」的标识。
     var forYouParams: [(String, String)] {
         var params: [(String, String)] = []
         if !college.isEmpty { params.append(("college", college)) }
@@ -91,9 +93,8 @@ final class UserProfile {
         return params
     }
 
-    /// 画像指纹。后端把画像摘要编进 for-you 的 cursor（`foryou.ts`），
-    /// 画像一变旧 cursor 就作废并返回 400 `invalid_cursor`。
-    /// 用这个字符串当分页缓存的 key，画像一变自然换一个 key，旧 cursor 不会被误用。
+    /// 画像指纹：画像内容一变指纹就变。原用于 for-you cursor 失效判定；
+    /// for-you 下线后保留为通用的画像变更标识（SelfCheck 有断言覆盖）。
     var profileFingerprint: String {
         forYouParams.map { "\($0.0)=\($0.1)" }.joined(separator: "&")
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 主页「与我有关的通知」：基于画像的精选，最多 3 条，可进入完整列表。
+/// 主页「与我有关的通知」：精选流（timeline）前几条，最多 3 条，可进入完整列表。
+/// （网页端 for-you 个性化已下线后，主页改复用精选流，见 `HomeView.feedItems`。）
 struct HomeFeedSection: View {
     let items: [FeedItem]
 

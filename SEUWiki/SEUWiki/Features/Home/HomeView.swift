@@ -38,12 +38,10 @@ struct HomeView: View {
             .profileEntry(isPresented: $showsProfile)
             .appNavigationDestinations()
             .refreshable {
-                await feedStore.refresh(scope: .forYou, profile: profile)
+                await feedStore.refresh(scope: .featured)
             }
-            .task(id: profile.profileFingerprint) {
-                // 画像一变就重新拉「为你精选」：后端 cursor 与画像绑定，
-                // 沿用旧结果既不匹配也会让翻页一直失败。
-                await feedStore.refresh(scope: .forYou, profile: profile)
+            .task {
+                await feedStore.loadIfNeeded(scope: .featured)
             }
         }
     }
@@ -56,13 +54,13 @@ struct HomeView: View {
         NextCourseCard(course: profile.nextCourse, onTap: onShowTimetable)
     }
 
-    /// 首页通知区用「为你精选」第一页。
+    /// 首页通知区用「精选」流（timeline）第一页。
     ///
     /// 加载失败时**不**用样例数据兜底 —— 首页是用户对 App 的第一印象，
     /// 拿编造的通知填满首屏比显示一个错误态糟糕得多。`FeedStore` 失败时会置
     /// `isOffline`，由 `HomeFeedSection` 展示错误态与重试。
     private var feedItems: [FeedItem] {
-        feedStore.page(for: .forYou).items
+        feedStore.page(for: .featured).items
     }
 }
 

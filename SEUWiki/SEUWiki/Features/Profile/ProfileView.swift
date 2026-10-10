@@ -186,7 +186,8 @@ private struct DebugPickerDestination: View {
     }
 }
 
-/// 「我的画像」：学院 / 学段 / 年级 / 兴趣，登录与否均可编辑（对应 for-you 画像参数）。
+/// 「我的画像」：学院 / 学段 / 年级 / 兴趣，登录与否均可编辑。
+/// （网页端 for-you 个性化已下线，资讯流暂不使用画像；画像数据保留在本机。）
 private struct PersonaSection: View {    @Environment(UserProfile.self) private var profile
 
     var body: some View {
@@ -216,7 +217,7 @@ private struct PersonaSection: View {    @Environment(UserProfile.self) private 
         } header: {
             Text("我的画像")
         } footer: {
-            Text("画像用于「为你精选」的匹配，存在本机，未登录也可编辑。改了画像会立即重新匹配。")
+            Text("画像存在本机，未登录也可编辑。资讯流暂不使用画像匹配。")
         }
     }
 }
@@ -505,7 +506,6 @@ private struct AboutView: View {
 
             Section("功能状态") {
                 LabeledContent("资讯聚合", value: "已上线")
-                LabeledContent("为你精选", value: "已上线")
                 LabeledContent("社区（发帖/点赞/评论/收藏）", value: "已上线")
                 LabeledContent("东大生存手册", value: "接口部署中")
                 LabeledContent("提醒推送", value: "已上线")

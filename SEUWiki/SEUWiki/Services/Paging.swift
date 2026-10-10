@@ -6,7 +6,7 @@ import Foundation
 /// 1. `FeedStore` 追加下一页时按 id 去重；
 /// 2. `SearchStore` 追加搜索结果时按 id 去重。
 ///
-/// **为什么必须去重**：for-you 与 pool 的排序都会随内容热度、时间衰减漂移，
+/// **为什么必须去重**：timeline 与 pool 的排序都会随内容热度、时间衰减漂移，
 /// 同一条内容出现在相邻两页是现实场景。不去重时，SwiftUI 的 `ForEach` 行为未定义；
 /// 同样的数据在 Android 的 `LazyColumn` 上会抛 `Key was already used` 直接崩溃。
 enum Paging {
