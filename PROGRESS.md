@@ -1,9 +1,22 @@
 # 开发进度
 
-## 当前状态（2026-10-08）
+## 当前状态（2026-10-11）
 
 iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
-自检 177/177 通过，模拟器逐屏截图验收（浅色 + 深色）。
+当前版本 0.3.4 (7)；自检 201/201 通过（iPhone 17 模拟器实测），模拟器逐屏截图验收（浅色 + 深色）。
+
+**2026-10-11：资讯信息流对齐网页端信息架构（311f64c）。** 资讯页改为 11 个 console，
+与网页端 tab 行逐一对应：精选 / 一手 / 教务 / 奖助 / 竞赛科研 / 交流升学 / 实习就业 /
+社团活动 / 生活服务 / 校园新闻 / 全部。精选走 `GET /api/site/timeline`（cursor 分页），
+一手（`channel=firstParty`）/ 分类（`category=<key>`）/ 全部走 `/api/site/pool`
+（page 分页，`hasMore = page < pageCount`）。**「为你精选」（`/api/site/for-you`）随
+网页端重构下线并从客户端删除**：`FeedService` 不再有 for-you 方法；用户画像
+（`UserProfile`）保留在本机但资讯流不再消费。主页「与我有关的通知」改用精选流，
+★精选角标保留。
+
+**2026-10-09：Umami 统计 + 版本 0.3.4 (7)。** 接入自建 Umami（`umami.iflink.tech`，
+站点 hostname `app.seu.wiki`）：屏幕浏览经 `.trackScreen` 自动上报，DEBUG 不上报；
+上报契约（website id / hostname / url / title / UA）进了 SelfCheck 断言。
 
 **2026-10-08：经验 tab 论坛化。** 经验 tab 从 seu-wiki-v2 文档接口迁移到论坛后端
 `forum.seu.wiki`：热门（论坛热榜，置顶优先）/ 关注（阶段 2，未部署显式标注）/
@@ -25,8 +38,9 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 
 ### 数据层：全部接真实后端
 
-- [x] `/api/site/timeline`、`/api/site/for-you`、`/api/site/items/{id}`（cursor 分页 + 去重）
-- [x] `/api/site/pool?q=&type=feed` 通知搜索
+- [x] `/api/site/timeline`（精选流，cursor 分页 + 去重）、`/api/site/items/{id}` 详情
+- [x] `/api/site/pool`（page 分页，`hasMore = page < pageCount`）：通知搜索（`q=`）、一手（`channel=firstParty`）、分类（`category=`）与「全部」tab 共用
+- [x] ~~`/api/site/for-you` 为你精选~~（2026-10-11 随网页端信息架构重构下线删除；画像保留在本机，资讯流不再消费）
 - [x] 论坛 `/api/posts`（hot offset 分页 / latest·tag keyset）、`/api/posts/{id}` 详情、`/view` 浏览 +1
 - [x] 论坛评论（单层楼中楼）、点赞/收藏 toggle、`GET /api/bookmarks`
 - [x] 论坛编辑/删除：`PATCH /api/posts/:id`、`DELETE /api/content/...`（作者）、`DELETE /api/admin/content/...`（管理删除）
@@ -78,12 +92,12 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 
 - [x] 持久化 schema 版本 + `.corruptBackup` 备份 + 逐字段容错解码（S-14）
 - [x] 分页竞态用 generation 计数器解决（S-9）
-- [x] 改画像重置 for-you cursor（S-8）
+- [x] ~~改画像重置 for-you cursor（S-8）~~（for-you 已随 2026-10-11 重构下线，该 cursor 不复存在；画像指纹保留为「画像是否变化」的标识，SelfCheck 仍有断言）
 - [x] 绝对时间统一格式（I-12）
 
 ### 自检套件
 
-`Services/SelfCheck.swift`，161 条断言，DEBUG 启动自动跑，结果同时写到 App 容器 `Documents/selfcheck.txt`（本机 `NSLog` 取不出来，详见 README）。**它抓到了三个代码审查看不出的真 bug**：
+`Services/SelfCheck.swift`，201 条断言（2026-10-11 在 iPhone 17 模拟器实测 201/201 通过），DEBUG 启动自动跑，结果同时写到 App 容器 `Documents/selfcheck.txt`（本机 `NSLog` 取不出来，详见 README）。资讯信息流重构与 Umami 接入后新增了断言组：资讯 scope（11 个 tab 的顺序、id 唯一、不含 for-you）、pool 分页判定（`hasMore = page < pageCount`）、Umami 上报契约。**它抓到过多起代码审查看不出的真 bug**：
 
 | 断言组 | 抓到的 bug |
 |---|---|
@@ -99,7 +113,7 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 
 - [ ] **S-15 绩点口径**：现按 4.8 制换算，代码注释已标注这是手册假设，**需向教务处核实**
 - [ ] **论坛阶段 2 接口未部署时的端到端验证**：`/api/follows`、`/api/feed/following` 在仓库与线上均不存在路由，客户端按契约写好并以 404→「即将上线」降级；待后端上线后需复测关注流。另外「赞」无 hasUserLiked 读取接口，详情页初始一律显示未赞（后端契约限制）
-- [ ] **发帖图片上传未实现**：`/api/media/upload`（multipart + COS）本期范围外，编辑器不提供图片按钮
+- [ ] ~~**发帖图片上传未实现**：`/api/media/upload`（multipart + COS）本期范围外，编辑器不提供图片按钮~~（2026-10-08 第二轮已实现：PhotosPicker 多图 + `/api/media/upload` multipart 上传，见上方「已完成」）
 - [ ] **登录无法端到端验证**：Logto 授权码 + PKCE 需要交互式浏览器 + 真实凭据。S-1/S-2/S-6/S-7 是靠代码审查 + 对真实 token/revocation 端点 `curl` 验证的，**不是**真的登进去过
 - [ ] **通知授权弹窗与横幅未在本机实跑**：本机 `Simulator.app` 不在 Xcode 包内，无合成点击能力；`simctl privacy` 不含 notifications 服务、授权状态也不在可写的 TCC 里。因此「授权弹窗 → 真实排程 → 到点弹横幅 → 点开」这段**没有**在真机/模拟器上看过。
       已验证的部分：排程算法与 `userInfo` 契约有自检覆盖；深链后半段（`RootTabView` → `FeedHomeView` → 详情页）用 DEBUG 启动参数 `-uipush <真实id>` 冷启动实测直达并截图。`-uipush` 走的是与系统回调**同一个** `handle(userInfo:)` 入口，Release 二进制里不存在

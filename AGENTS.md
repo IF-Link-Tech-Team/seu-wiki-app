@@ -29,7 +29,8 @@ SwiftUI 原生客户端。本文件记录**必须遵守**的工程规则，改�
 ## 构建与自检
 
 - 打开 `SEUWiki/SEUWiki.xcodeproj`；模拟器构建：
-  `xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki -destination 'platform=iOS Simulator,name=iPhone 16' build`
+  `xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki -destination 'platform=iOS Simulator,name=iPhone 17' build`
+  （不指定具体机型、只写 `platform=iOS Simulator` 也可以，xcodebuild 会任选一个可用设备）
 - `SelfCheck.runAll()`（`Services/SelfCheck.swift`）在 DEBUG 启动时自动跑，
   与 Android `SelfCheckTest` **逐条对齐**；新增关键纯逻辑必须两端各补一条断言，
   失败会弹断言——改坏了另一端也该知道。

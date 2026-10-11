@@ -7,7 +7,7 @@
 | Tab | 内容 |
 |---|---|
 | 主页 | bento 卡片：提醒倒计时、下一节课、与我有关的通知、社区热议（论坛热榜前 3 条） |
-| 资讯 | 全校通知信息流（源自 seu-wiki-v2），为你精选 / 全部（可筛选）/ 分类 console，详情页可设定截止提醒 |
+| 资讯 | 全校通知信息流（源自 seu-wiki-v2），11 个 console 与网页端 tab 行对齐：精选 / 一手 / 教务 / 奖助 / 竞赛科研 / 交流升学 / 实习就业 / 社团活动 / 生活服务 / 校园新闻 / 全部；「全部」可筛选，★精选角标保留，详情页可设定截止提醒 |
 | 经验 | 热门 / 关注 / 东大生存手册，全部来自论坛后端 `forum.seu.wiki`：热榜（置顶优先）、关注流（阶段 2，未部署显式标注）、手册板块与沉淀文章；帖子详情有真实评论/点赞/收藏/浏览计数，右上角原生发帖编辑器 |
 | 工具 | 课表、绩点计算等校园工具；**未上线的工具显式标注「即将推出」并置灰不可点** |
 | 搜索 | 一次搜索聚合三个信源：通知（`/api/site/pool`）/ 经验帖与手册文章（论坛 `/api/search`）；各信源独立成败，论坛未部署时显式标注、不拖垮通知 |
@@ -22,11 +22,12 @@
 
 | 端点 | 用途 | 备注 |
 |---|---|---|
-| `/api/site/timeline` | 全部通知 | cursor 分页 |
-| `/api/site/for-you` | 为你精选 | cursor **绑定画像**，改画像须重置 cursor |
+| `/api/site/timeline` | 「精选」tab | cursor 分页；2026-10-08 网页端重构后 timeline 只剩精选用途，不再接受 category |
+| `/api/site/pool` | 一手 / 分类 /「全部」tab + 通知搜索 | page 分页（`hasMore = page < pageCount`）；一手 `channel=firstParty`，分类 `category=<key>`，搜索带 `q=`；经验/手册搜索已迁论坛，pool 只留资讯 |
 | `/api/site/items/{id}` | 通知详情 | |
-| `/api/site/pool?q=&type=feed` | 通知搜索 | 经验/手册搜索已迁论坛，pool 只留资讯 |
 | `/api/site/docs/{slug}` | 长文详情 | 保留给本机长文收藏与调试深链；返回 `html` + **`headings`**（`{id,text,depth}`） |
+
+「为你精选」（`/api/site/for-you`）已随网页端 2026-10-08 信息架构重构**下线删除**，客户端不再调用；用户画像（UserProfile）保留在本机，但资讯流不再消费，主页通知区改用精选流。
 
 **forum.seu.wiki（社区，公开读 + Bearer 写）**
 
@@ -69,7 +70,7 @@ xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki \
 
 ```bash
 DC=$(xcrun simctl get_app_container booted tech.iflink.seuwiki data)
-head -1 "$DC/Documents/selfcheck.txt"   # 例如 161/161 通过
+head -1 "$DC/Documents/selfcheck.txt"   # 例如 201/201 通过
 grep '^FAIL' "$DC/Documents/selfcheck.txt"
 ```
 
@@ -91,15 +92,15 @@ xcrun simctl launch booted tech.iflink.seuwiki -uipush <feedItemID>  # 模拟点
 SEUWiki/SEUWiki/
 ├── App/          # 入口与根 TabView（含 DEBUG 深链参数）
 ├── Models/       # 数据模型（对齐真实 API）、ToolCatalog
-├── Design/       # 共享设计组件（卡片、ConsoleBar、导航目的地、品牌色）
-├── Services/     # FeedService（seu.wiki）、ForumService（forum.seu.wiki）、ReminderScheduler、NotificationCenterDelegate、SelfCheck、Paging、TimeFormat
+├── Design/       # 共享设计组件（卡片、ConsoleBar、导航目的地、品牌色、TimeFormat）
+├── Services/     # FeedService（seu.wiki）、ForumService（forum.seu.wiki）、AnalyticsService（Umami）、ReminderScheduler、NotificationCenterDelegate、SelfCheck、Paging
 ├── Stores/       # UserProfile、FeedStore 等 @Observable 状态
 └── Features/     # Home / Feed / Experience / Tools / Search / Profile
 ```
 
 ## 自检套件
 
-`Services/SelfCheck.swift` 在 DEBUG 启动时自动执行 161 条断言，覆盖：日期解析（含论坛 PostgREST 6 位微秒时间戳）、相对时间、绩点计算、分页去重、slug 编码、URL 组装、后端字段契约（长文 `headings/depth`、论坛帖子/手册文章的 snake_case 字段）、论坛标签目录完整性（8 主题 + 29 子标签 = 37 slug 唯一）、画像指纹、颜色对比度、提醒徽标、提醒通知契约（`userInfo` 的 key、触发时刻算法）、SF Symbol 有效性、持久化容错。
+`Services/SelfCheck.swift` 在 DEBUG 启动时自动执行 201 条断言，覆盖：日期解析（含论坛 PostgREST 6 位微秒时间戳）、相对时间、绩点计算、分页去重、资讯信息流信息架构（11 个 tab 的顺序与无 for-you）、pool 分页判定、slug 编码、URL 组装、后端字段契约（长文 `headings/depth`、论坛帖子/手册文章的 snake_case 字段）、论坛标签目录完整性（8 主题 + 29 子标签 = 37 slug 唯一）、画像指纹、颜色对比度、提醒徽标、提醒通知契约（`userInfo` 的 key、触发时刻算法）、SF Symbol 有效性、Umami 上报契约（website id / hostname / url / title / UA / DEBUG 不上报）、持久化容错。
 
 其中 75 条是 SF Symbol 校验：`Image(systemName:)` 拿到不存在的名字**不报错、只画空白**，构建照样全绿。`checkSFSymbols()` 把工程用到的每个 SF 名用 `UIImage(systemName:)` 验一遍 —— 这条是安卓端在模拟器截图里发现「收藏按钮渲染成九宫格」之后补的，安卓那边兜底成了一个语义完全不相干的图形，iOS 这边兜底是空白。清单是照源码全量扫出来的，**新增图标要往 `usedSFSymbols` 里加一行**。
 
