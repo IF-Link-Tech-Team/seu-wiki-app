@@ -1,18 +1,17 @@
 import SwiftUI
 
-/// 资讯页 console 选项：精选 / 一手 / 8 个资讯分类 / 全部。
-/// 与网页端 tab 行（seu-wiki-v2 2026-10-08 信息架构重构）逐一对齐：
-/// 精选走 timeline，一手 / 分类 / 全部走 pool；for-you 已被网页端删除，这里同步移除。
+/// 资讯页 console 选项：精选 / 订阅占位 / 8 个资讯分类 / 全部。
+/// 精选走 timeline，分类 / 全部走 pool；订阅不请求内容。
 enum FeedScope: Hashable, Identifiable {
     case featured
-    case firstParty
+    case subscription
     case all
     case category(FeedCategory)
 
     var id: String {
         switch self {
         case .featured: "featured"
-        case .firstParty: "firstParty"
+        case .subscription: "subscription"
         case .all: "all"
         case .category(let category): category.rawValue
         }
@@ -21,14 +20,16 @@ enum FeedScope: Hashable, Identifiable {
     var title: String {
         switch self {
         case .featured: "精选"
-        case .firstParty: "一手"
+        case .subscription: "订阅"
         case .all: "全部"
         case .category(let category): category.name
         }
     }
 
-    /// 顺序即 tab 行顺序：精选、一手、8 个分类、全部。
-    static let scopes: [FeedScope] = [.featured, .firstParty] + FeedCategory.allCases.map { .category($0) } + [.all]
+    var loadsContent: Bool { self != .subscription }
+
+    /// 顺序即 tab 行顺序：精选、订阅、8 个分类、全部。
+    static let scopes: [FeedScope] = [.featured, .subscription] + FeedCategory.allCases.map { .category($0) } + [.all]
 }
 
 /// 「全部」列表的筛选条件。
@@ -89,13 +90,11 @@ struct FeedHomeView: View {
                             onRefresh: { await store.refresh(scope: .featured) },
                             onLoadMore: { await store.loadMore(scope: .featured) }
                         )
-                    case .firstParty:
-                        FeedItemList(
-                            items: store.page(for: .firstParty).items,
-                            page: store.page(for: .firstParty),
-                            emptyMessage: "暂无一手资讯",
-                            onRefresh: { await store.refresh(scope: .firstParty) },
-                            onLoadMore: { await store.loadMore(scope: .firstParty) }
+                    case .subscription:
+                        ContentUnavailableView(
+                            "订阅尚未开放",
+                            systemImage: "newspaper",
+                            description: Text("个性化规则仍在设计中")
                         )
                     case .all:
                         FeedItemList(

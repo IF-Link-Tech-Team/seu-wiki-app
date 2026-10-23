@@ -1,7 +1,7 @@
 import Foundation
 
-/// 资讯模块的状态仓库：每个 console scope（精选 / 一手 / 各分类 / 全部）各自维护
-/// 一份分页状态。精选走 timeline 的 cursor 分页，一手 / 分类 / 全部走 pool 的
+/// 资讯模块的状态仓库：每个内容 scope（精选 / 各分类 / 全部）各自维护
+/// 一份分页状态。精选走 timeline 的 cursor 分页，分类 / 全部走 pool 的
 /// page 分页（与网页端 2026-10-08 信息架构重构对齐），两种分页在同一份
 /// `PageState` 里并存（`nextCursor` 与 `nextPage` 只会有一个非空）。
 ///
@@ -16,7 +16,7 @@ final class FeedStore {
         var items: [FeedItem] = []
         /// timeline（精选）的下一页游标。
         var nextCursor: String?
-        /// pool（一手 / 分类 / 全部）的下一页页码（1 起）。
+        /// pool（分类 / 全部）的下一页页码（1 起）。
         var nextPage: Int?
         var isLoading = false
         var isLoadingMore = false
@@ -56,12 +56,14 @@ final class FeedStore {
 
     /// 首次进入某个 scope 时加载；已加载过的 scope 直接复用。
     func loadIfNeeded(scope: FeedScope) async {
+        guard scope.loadsContent else { return }
         guard !page(for: scope).hasLoaded else { return }
         await refresh(scope: scope)
     }
 
     /// 下拉刷新 / 首次加载。
     func refresh(scope: FeedScope) async {
+        guard scope.loadsContent else { return }
         guard !page(for: scope).isLoading else { return }
 
         let generation = nextGeneration(for: scope)
@@ -96,6 +98,7 @@ final class FeedStore {
 
     /// 滚动到底加载下一页。失败静默，下次滚动到底会再试。
     func loadMore(scope: FeedScope) async {
+        guard scope.loadsContent else { return }
         let state = page(for: scope)
         guard state.hasLoaded, !state.isLoading, !state.isLoadingMore, !state.isOffline else { return }
         // 两种分页只会有一个 token 非空；都没有就是到底了。
@@ -136,16 +139,15 @@ final class FeedStore {
     }
 
     /// scope → 端点路由（与网页端 tab 一一对应）：
-    /// 精选 → timeline（cursor 分页）；一手 / 分类 / 全部 → pool（page 分页，
+    /// 精选 → timeline（cursor 分页）；分类 / 全部 → pool（page 分页，
     /// `hasMore = page < pageCount`）。
     private func fetch(scope: FeedScope, cursor: String?, page: Int) async throws -> (items: [FeedItem], nextCursor: String?, nextPage: Int?) {
         switch scope {
         case .featured:
             let result = try await client.timeline(cursor: cursor)
             return (result.items, result.nextCursor, nil)
-        case .firstParty:
-            let result = try await client.pool(channel: "firstParty", page: page)
-            return (result.items, nil, result.hasMore ? result.page + 1 : nil)
+        case .subscription:
+            return ([], nil, nil)
         case .category(let category):
             let result = try await client.pool(category: category, page: page)
             return (result.items, nil, result.hasMore ? result.page + 1 : nil)
