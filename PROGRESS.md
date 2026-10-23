@@ -1,6 +1,14 @@
 # 开发进度
 
-## 当前状态（2026-10-11）
+## 当前改动（2026-10-22，待 macOS 构建验收）
+
+- 资讯第二个入口改为可点击的订阅占位；不请求内容、不要求登录、不采集画像。
+- 移除旧栏目及其 pool 查询参数；精选、8 个分类、全部、搜索及其他模块保留。
+- 客户端原先无日／周／月报入口及调用，无需新增下线逻辑。
+- 补充 SelfCheck 的栏目顺序、订阅不加载内容、保留资讯继续加载断言，与 Android 对齐。收藏仅持久化 slug，不存栏目或来源标识，无需迁移。
+- 当前 Windows 环境无 Swift／Xcode，尚未执行新版 SelfCheck、模拟器构建及渲染验收；下方为历史验收记录。
+
+## 历史状态（2026-10-11）
 
 iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，生产路径**无任何 Mock / 编造内容**。
 当前版本 0.3.4 (7)；自检 201/201 通过（iPhone 17 模拟器实测），模拟器逐屏截图验收（浅色 + 深色）。
@@ -39,7 +47,7 @@ iOS 端小步中文提交（`git log --oneline`），双端已接真实后端，
 ### 数据层：全部接真实后端
 
 - [x] `/api/site/timeline`（精选流，cursor 分页 + 去重）、`/api/site/items/{id}` 详情
-- [x] `/api/site/pool`（page 分页，`hasMore = page < pageCount`）：通知搜索（`q=`）、一手（`channel=firstParty`）、分类（`category=`）与「全部」tab 共用
+- [x] `/api/site/pool`（page 分页，`hasMore = page < pageCount`）：通知搜索（`q=`）、分类（`category=`）与「全部」tab 共用
 - [x] ~~`/api/site/for-you` 为你精选~~（2026-10-11 随网页端信息架构重构下线删除；画像保留在本机，资讯流不再消费）
 - [x] 论坛 `/api/posts`（hot offset 分页 / latest·tag keyset）、`/api/posts/{id}` 详情、`/view` 浏览 +1
 - [x] 论坛评论（单层楼中楼）、点赞/收藏 toggle、`GET /api/bookmarks`

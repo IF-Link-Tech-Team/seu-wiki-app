@@ -174,18 +174,20 @@ enum SelfCheck {
 
     // MARK: - 资讯信息流信息架构
 
-    /// 与网页端 2026-10-08 信息架构重构（seu-wiki-v2 commit 998ce5d）对齐，
-    /// 与 Android `SelfCheckTest` 同语义：tab 行 = 精选 / 一手 / 8 分类 / 全部，
-    /// for-you 已删除。
+    /// 与 Android `SelfCheckTest` 同语义：订阅只占位，其余资讯仍正常加载。
     private static func checkFeedScopes() {
         let scopes = FeedScope.scopes
         expect("资讯scope/共 11 个", scopes.count == 11, "实际 \(scopes.count)")
         expect("资讯scope/顺序与网页端 tab 行一致",
-               scopes.map(\.title) == ["精选", "一手", "教务", "奖助", "竞赛科研", "交流升学", "实习就业", "社团活动", "生活服务", "校园新闻", "全部"],
+               scopes.map(\.title) == ["精选", "订阅", "教务", "奖助", "竞赛科研", "交流升学", "实习就业", "社团活动", "生活服务", "校园新闻", "全部"],
                "实际 \(scopes.map(\.title))")
         // id 进 ConsoleBar 的 selection，必须全局唯一且稳定。
         expect("资讯scope/id 无重复", Set(scopes.map(\.id)).count == scopes.count)
         expect("资讯scope/不含 for-you", !scopes.contains { $0.id == "forYou" })
+        expect("资讯scope/已移除旧栏目", !scopes.contains { $0.id == "firstParty" })
+        expect("资讯scope/订阅紧跟精选", scopes.prefix(2).map(\.id) == ["featured", "subscription"])
+        expect("资讯scope/订阅不加载内容", !FeedScope.subscription.loadsContent)
+        expect("资讯scope/保留资讯继续加载", scopes.filter(\.loadsContent).count == 10)
     }
 
     /// pool 是 page 分页：`hasMore = page < pageCount`（与网页端一致，与 Android 同语义）。

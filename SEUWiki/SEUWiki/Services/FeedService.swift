@@ -14,7 +14,7 @@ import UIKit
 /// 缓存：timeline/pool 由服务端发 ETag，走 `URLCache`（见 `makeSession`）。
 ///
 /// 信息架构与网页端 2026-10-08 重构（seu-wiki-v2 commit 998ce5d）对齐：
-/// 精选走 `timeline`，一手 / 分类 / 全部走 `pool`（page 分页），
+/// 精选走 `timeline`，分类 / 全部走 `pool`（page 分页），订阅只占位，
 /// for-you 个性化接口已被网页端删除，这里同步移除。
 struct FeedAPIClient: Sendable {
     var baseURL = URL(string: "https://seu.wiki")!
@@ -107,11 +107,10 @@ struct FeedAPIClient: Sendable {
 
     // MARK: - 资讯 pool（搜索 + 无门槛浏览）
 
-    /// GET /api/site/pool?q=&type=feed&channel=&category=&page= → 全量无门槛流（page 分页）。
+    /// GET /api/site/pool?q=&type=feed&category=&page= → 全量无门槛流（page 分页）。
     ///
-    /// 三种用法共用这一个端点（契约见 seu-wiki-v2 `packages/contracts/src` 的 PoolResponse）：
+    /// 两种用法共用这一个端点（契约见 seu-wiki-v2 `packages/contracts/src` 的 PoolResponse）：
     /// - **搜索**：带 `q`（`SearchStore`）；
-    /// - **一手**：`channel=firstParty`（资讯页「一手」tab）；
     /// - **分类 / 全部**：`category=<key>` 或都不带（资讯页分类 tab 与「全部」tab）。
     ///
     /// 固定 `type=feed`：pool 还接受 `type=all`（同时返回长文 `docs` 命中），但 App 的
@@ -119,13 +118,12 @@ struct FeedAPIClient: Sendable {
     /// 无 `q` 时 `docs` 恒为空数组，`type` 参数对结果无影响。
     ///
     /// pool 固定每页 40 条、page 从 1 起；`hasMore = page < pageCount`（见 `PoolResult`）。
-    func pool(query: String? = nil, channel: String? = nil, category: FeedCategory? = nil, page: Int = 1) async throws -> PoolResult {
+    func pool(query: String? = nil, category: FeedCategory? = nil, page: Int = 1) async throws -> PoolResult {
         var queryItems = [
             URLQueryItem(name: "type", value: "feed"),
             URLQueryItem(name: "page", value: String(page)),
         ]
         if let query { queryItems.append(URLQueryItem(name: "q", value: query)) }
-        if let channel { queryItems.append(URLQueryItem(name: "channel", value: channel)) }
         if let category { queryItems.append(URLQueryItem(name: "category", value: category.rawValue)) }
         let response: PoolResponseDTO = try await get("/api/site/pool", query: queryItems)
         return PoolResult(
