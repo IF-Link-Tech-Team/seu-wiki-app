@@ -365,6 +365,7 @@ private struct FeedItemSummaryDTO: Decodable {
     let campus: CampusDTO?
     let matchReasons: [String]?
     let rankScore: Double?
+    let activitySchedule: ActivitySchedule?
 
     func feedItem() -> FeedItem {
         FeedItem(
@@ -379,7 +380,8 @@ private struct FeedItemSummaryDTO: Decodable {
             score: score ?? 0,
             isSelected: selected,
             audience: campus?.audience() ?? CampusAudience(),
-            matchReasons: matchReasons ?? []
+            matchReasons: matchReasons ?? [],
+            activitySchedule: activitySchedule
         )
     }
 }

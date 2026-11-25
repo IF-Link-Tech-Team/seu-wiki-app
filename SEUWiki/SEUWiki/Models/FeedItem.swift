@@ -46,6 +46,54 @@ struct CampusAudience: Codable, Hashable {
     }
 }
 
+/// 精选接口提供的活动时间；显示保留服务端原文与精度。
+struct ActivityScheduleTime: Codable, Hashable {
+    var text: String
+    var value: String? = nil
+    var precision: String? = nil
+}
+
+struct ActivityScheduleEntry: Codable, Hashable {
+    var name: String
+    var registrationStart: ActivityScheduleTime? = nil
+    var registrationEnd: ActivityScheduleTime? = nil
+    var activityStart: ActivityScheduleTime? = nil
+    var activityEnd: ActivityScheduleTime? = nil
+    var registrationNote: String? = nil
+
+    func lines() -> [String] {
+        [range("报名", registrationStart, registrationEnd, registrationNote),
+         range("活动", activityStart, activityEnd, nil)].compactMap { $0 }
+    }
+
+    private func range(_ label: String, _ start: ActivityScheduleTime?, _ end: ActivityScheduleTime?, _ note: String?) -> String? {
+        if note == "无需报名" { return start != nil || end != nil ? "\(label)：时间待核实" : "\(label)：无需报名" }
+        let first = start?.text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let last = end?.text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if let first, let last { return "\(label)：\(first) → \(last)" }
+        if let first { return "\(label)：\(first) 开始 · \(label == "报名" ? "截止" : "结束")未注明" }
+        if let last { return label == "报名" ? "报名：截至 \(last)" : "活动：\(last) 结束 · 开始未注明" }
+        return nil
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+struct ActivitySchedule: Codable, Hashable {
+    var activities: [ActivityScheduleEntry] = []
+    var notice: String? = nil
+
+    func lines() -> [String] {
+        if let notice, !notice.isEmpty { return [notice] }
+        return activities.flatMap { entry in
+            let rows = entry.lines()
+            return !rows.isEmpty && activities.count > 1 && !entry.name.isEmpty ? [entry.name] + rows : rows
+        }
+    }
+}
+
 /// 一条资讯，对应 seu-wiki-v2 `FeedItemSummary`（/api/site/timeline、/api/site/pool）。
 struct FeedItem: Identifiable, Codable, Hashable {
     let id: String
@@ -60,6 +108,7 @@ struct FeedItem: Identifiable, Codable, Hashable {
     var isSelected: Bool       // 是否精选
     var audience: CampusAudience
     var matchReasons: [String] = []  // for-you 命中理由；for-you 已下线，当前接口不下发，仅 Preview 样例使用
+    var activitySchedule: ActivitySchedule? = nil
 
     /// 只知道 id 时的占位条目。
     ///

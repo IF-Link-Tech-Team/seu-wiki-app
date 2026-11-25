@@ -36,6 +36,7 @@ enum SelfCheck {
         checkGPA()
         checkPaginationDedup()
         checkFeedScopes()
+        checkActivitySchedule()
         checkPoolPagination()
         checkSlugEncoding()
         checkDocDetailContract()
@@ -175,6 +176,12 @@ enum SelfCheck {
     // MARK: - 资讯信息流信息架构
 
     /// 与 Android `SelfCheckTest` 同语义：订阅只占位，其余资讯仍正常加载。
+    private static func checkActivitySchedule() {
+        let entry = ActivityScheduleEntry(name: "讲座", registrationEnd: ActivityScheduleTime(text: "11月29日 20:00"), activityStart: ActivityScheduleTime(text: "12月5日 8:30"))
+        expect("活动时间/保留原文与缺失边界", entry.lines() == ["报名：截至 11月29日 20:00", "活动：12月5日 8:30 开始 · 结束未注明"])
+        expect("活动时间/取消提示优先", ActivitySchedule(notice: "活动已取消").lines() == ["活动已取消"])
+    }
+
     private static func checkFeedScopes() {
         let scopes = FeedScope.scopes
         expect("资讯scope/共 11 个", scopes.count == 11, "实际 \(scopes.count)")

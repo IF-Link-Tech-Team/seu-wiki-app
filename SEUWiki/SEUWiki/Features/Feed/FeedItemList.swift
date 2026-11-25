@@ -76,6 +76,11 @@ private struct FeedItemRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if let lines = item.activitySchedule?.lines() {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 HStack(spacing: 6) {
                     Text(item.sourceName)
                     Text("·")
