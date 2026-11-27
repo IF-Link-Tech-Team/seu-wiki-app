@@ -31,4 +31,4 @@ jobs:
       - name: Build for iOS Simulator
         run: xcodebuild -project SEUWiki/SEUWiki.xcodeproj -scheme SEUWiki -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
       - name: Analyze Swift
-        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
